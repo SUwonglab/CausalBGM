@@ -1,0 +1,10 @@
+dataset: test
+output_dir: '.'
+z_dim: 3
+x_dim: 10
+lr: 0.0002
+g_units: [5,10]
+e_units: [10,5]
+sigma: 2
+save_res: True
+save_model: False
