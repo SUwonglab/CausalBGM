@@ -21,6 +21,7 @@ class BayesGM(object):
                                         model_name='e_net', nb_units=params['e_units'])
         
         self.g_e_optimizer = tf.keras.optimizers.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
+        self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
         self.initialize_nets()
         if self.timestamp is None:
             now = datetime.datetime.now(dateutil.tz.tzlocal())
@@ -55,25 +56,25 @@ class BayesGM(object):
         }
 
     def initialize_nets(self, print_summary = False):
-        """Initialize all the networks in CausalEGM."""
+        """Initialize all the networks in BayesGM."""
 
         self.g_net(np.zeros((1, self.params['z_dim'])))
         self.e_net(np.zeros((1, self.params['x_dim'])))
         if print_summary:
             print(self.g_net.summary())
-            print(self.h_net.summary())
+            print(self.e_net.summary())
 
-    @tf.function
+    #@tf.function
     def update_generator(self, data_z, data_x):
         with tf.GradientTape(persistent=True) as gen_tape:
             data_x_ = self.g_net(data_z)
             loss_x = tf.reduce_mean((data_x - data_x_)**2)
 
         # Calculate the gradients for generators and discriminators
-        g_e_gradients = gen_tape.gradient(loss_x, self.g_net.trainable_variables+self.e_net.trainable_variables)
+        g_e_gradients = gen_tape.gradient(loss_x, self.g_net.trainable_variables)
         
         # Apply the gradients to the optimizer
-        self.g_e_optimizer.apply_gradients(zip(g_e_gradients, self.g_net.trainable_variables+self.e_net.trainable_variables))
+        self.g_e_optimizer.apply_gradients(zip(g_e_gradients, self.g_net.trainable_variables))
         return loss_x
 
     def get_log_posterior(self, data_z, x):
@@ -104,11 +105,32 @@ class BayesGM(object):
                 z = z_candidate
             z_chain.append(z_candidate)
         return z_chain[-1]
-
     
+    #@tf.function
+    def update_latent_variable_sgd(self, data_z, data_x):
+        #print('1',data_z,data_z.trainable)
+        #print(self.g_net.trainable_variables)
+        #sys.exit()
+        #print(self.g_net.trainable_variables[0])
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(data_z)
+            data_x_ = self.g_net(data_z)
+            loss_postrior = tf.reduce_mean((data_x - data_x_)**2/self.params['sigma']**2) + tf.reduce_mean(data_z**2)
+
+        #self.posterior_optimizer.build(data_z)
+        # Calculate the gradients for generators and discriminators
+        posterior_gradients = tape.gradient(loss_postrior, [data_z])
+        #print(posterior_gradients)
+        #sys.exit()
+        # Apply the gradients to the optimizer
+        self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
+        #print('2',data_z)
+        #print(self.g_net.trainable_variables[0])
+        #sys.exit()
+        return loss_postrior, data_z
+
     def update_latent_variable(self, batch_z, batch_x, method='RS'):
         #return np.array(list(map(self.MH_sampling, batch_z, batch_x))), [1,1],[0,0]
-        
         z_posterior_list = []
         nb_z_list = []
         K_list = []
@@ -126,26 +148,43 @@ class BayesGM(object):
         self.history_z = []
         self.data_obs = data_obs
         if data_z_init is None:
-            data_z_init = np.random.normal(1,1,size = (len(data_obs), self.params['z_dim'])).astype('float32')
+            data_z_init = np.random.uniform(0, 2, size = (len(data_obs), self.params['z_dim'])).astype('float32')
         else:
             assert len(data_z_init) == len(data_obs), "Sample size does not match!"
-        self.data_z = data_z_init
-
+        #self.data_z = data_z_init
+        self.data_z = tf.Variable(data_z_init, name="Latent Variable")
+        self.data_z_init = tf.identity(self.data_z)
         for batch_idx in range(n_iter+1):
-            #update parameters of G with SGD
+            #update model parameters of G with SGD
             sample_idx = np.random.choice(len(data_obs), batch_size, replace=False)
-            batch_z = self.data_z[sample_idx]
+            #batch_z = self.data_z[sample_idx]
+            batch_z = tf.Variable(tf.gather(self.data_z, sample_idx, axis = 0), name='batch_z')
+
             batch_x = self.data_obs[sample_idx]
             loss_x = self.update_generator(batch_z, batch_x)
-
             #update Z by maximizing a posterior or posterior mean
-            batch_z_new, nb_z_list, K_list = self.update_latent_variable(batch_z, batch_x)
-            self.data_z[sample_idx] = batch_z_new
-            
+            #batch_z_new, nb_z_list, K_list = self.update_latent_variable(batch_z, batch_x)
+            #print('before',batch_z)
+            loss_postrior, batch_z_new = self.update_latent_variable_sgd(batch_z, batch_x)
+            #print('after',batch_z,batch_z_new)
+            #print(batch_idx,batch_z_new)
+            nb_z_list, K_list = 0, 0
+            # if batch_idx == 3:
+            #     sys.exit()
+            #variable update rows
+            #self.data_z[sample_idx] = batch_z_new
+            self.data_z = tf.compat.v1.scatter_update(self.data_z, sample_idx, batch_z_new)
+            #print(self.data_z.device, batch_z.device)
             if batch_idx % batches_per_eval == 0:
-                print(nb_z_list)
-                loss_contents = '''Iteration [%d, %.1f] : loss_x [%.4f], mean effective ss [%.4f], mean constant K [%.4f]''' \
-                %(batch_idx, time.time()-t0, loss_x, np.mean(nb_z_list), np.mean(K_list))
+                loss_contents = '''Iteration [%d, %.1f] : loss_x [%.4f], loss_postrior [%.4f], mean effective ss [%.4f], mean constant K [%.4f]''' \
+                %(batch_idx, time.time()-t0, loss_x, loss_postrior, np.mean(nb_z_list), np.mean(K_list))
                 if verbose:
                     print(loss_contents)
                 self.history_z.append(copy.copy(self.data_z))
+                import matplotlib.pyplot as plt
+                import matplotlib
+                matplotlib.use('Agg')
+                print('mean',tf.reduce_mean(self.data_z))
+                plt.violinplot(self.data_z.numpy())
+                plt.savefig('violinplot_%d.png'%batch_idx)
+                plt.close()
