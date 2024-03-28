@@ -8,6 +8,38 @@ from sklearn.model_selection import train_test_split
 from scipy.sparse import diags
 from scipy.stats import norm
 
+
+def make_swiss_roll(n_samples=100, noise=(0.1, 0.6), random_state=None):
+    """Generate a swiss roll dataset.
+    Parameters
+    ----------
+    n_samples : int, default=100
+        The number of sample points on the Swiss Roll.
+
+    random_state : int, RandomState instance or None, default=None.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, 3)
+        The points.
+
+    t : ndarray of shape (n_samples,)
+        The univariate position of the sample according to the main dimension
+        of the points in the manifold.
+    """
+    np.random.seed(random_state)
+    t = 1.5 * np.pi * (1 + 2 * np.random.uniform(size=n_samples))
+    y = 21 * np.random.uniform(size=n_samples)
+
+    x = t * np.cos(t)
+    z = t * np.sin(t)
+    X = np.vstack((x, y, z))
+    lb, ub = noise
+    sd_t = ((t-np.min(t))*(ub-lb))/(np.max(t)-np.min(t))+lb
+    X += np.random.normal(0,sd_t,size=(3, n_samples))
+    X = X.T
+    return X, t
+
 def Dataset_selector(name):
     if name == 'Semi_acic':
         return Semi_acic_sampler
