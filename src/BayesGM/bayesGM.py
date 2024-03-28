@@ -19,7 +19,7 @@ class BayesGM(object):
                                         model_name='g_net', nb_units=params['g_units'])
         self.e_net = BaseFullyConnectedNet(input_dim=params['x_dim'],output_dim = params['z_dim'], 
                                         model_name='e_net', nb_units=params['e_units'])
-        
+
         self.g_e_optimizer = tf.keras.optimizers.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
         self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
         self.initialize_nets()
@@ -41,7 +41,9 @@ class BayesGM(object):
 
         self.ckpt = tf.train.Checkpoint(g_net = self.g_net,
                                    e_net = self.e_net,
-                                   g_e_optimizer = self.g_e_optimizer)
+                                   g_e_optimizer = self.g_e_optimizer,
+                                   posterior_optimizer = self.posterior_optimizer)
+        
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=3)                 
 
         if self.ckpt_manager.latest_checkpoint:
@@ -146,9 +148,11 @@ class BayesGM(object):
             startoff=0, verbose=1):
         t0 = time.time()
         self.history_z = []
+        self.history_loss = []
         self.data_obs = data_obs
         if data_z_init is None:
-            data_z_init = np.random.uniform(0, 2, size = (len(data_obs), self.params['z_dim'])).astype('float32')
+            #data_z_init = np.random.uniform(0, 2, size = (len(data_obs), self.params['z_dim'])).astype('float32')
+            data_z_init = np.random.normal(1, 1, size = (len(data_obs), self.params['z_dim'])).astype('float32')
         else:
             assert len(data_z_init) == len(data_obs), "Sample size does not match!"
         #self.data_z = data_z_init
@@ -176,6 +180,7 @@ class BayesGM(object):
             self.data_z = tf.compat.v1.scatter_update(self.data_z, sample_idx, batch_z_new)
             #print(self.data_z.device, batch_z.device)
             if batch_idx % batches_per_eval == 0:
+                self.history_loss.append([loss_x, loss_postrior])
                 loss_contents = '''Iteration [%d, %.1f] : loss_x [%.4f], loss_postrior [%.4f], mean effective ss [%.4f], mean constant K [%.4f]''' \
                 %(batch_idx, time.time()-t0, loss_x, loss_postrior, np.mean(nb_z_list), np.mean(K_list))
                 if verbose:
@@ -186,5 +191,18 @@ class BayesGM(object):
                 matplotlib.use('Agg')
                 print('mean',tf.reduce_mean(self.data_z))
                 plt.violinplot(self.data_z.numpy())
-                plt.savefig('violinplot_%d.png'%batch_idx)
+                plt.savefig('%s/violinplot_%d.png'%(self.save_dir, batch_idx))
                 plt.close()
+        np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
+        plt.plot(np.array(self.history_loss)[:,0])
+        plt.xlabel('Per 1000 iteration')
+        plt.ylabel('MLE loss')
+        plt.savefig('%s/MLE_loss.png'%(self.save_dir))
+        plt.close()
+
+        plt.plot(np.array(self.history_loss)[:,1])
+        plt.xlabel('Per 1000 iteration')
+        plt.ylabel('Posterior loss')
+        plt.savefig('%s/Posterior_loss.png'%(self.save_dir))
+        plt.close()
+        
