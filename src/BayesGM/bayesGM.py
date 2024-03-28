@@ -15,7 +15,7 @@ class BayesGM(object):
         if random_seed is not None:
             tf.keras.utils.set_random_seed(random_seed)
             os.environ['TF_DETERMINISTIC_OPS'] = '1'
-        self.g_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim'], 
+        self.g_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim']+1, 
                                         model_name='g_net', nb_units=params['g_units'])
         self.e_net = BaseFullyConnectedNet(input_dim=params['x_dim'],output_dim = params['z_dim'], 
                                         model_name='e_net', nb_units=params['e_units'])
@@ -32,7 +32,7 @@ class BayesGM(object):
 
         if self.params['save_model'] and not os.path.exists(self.checkpoint_path):
             os.makedirs(self.checkpoint_path)
-        
+
         self.save_dir = "{}/results/{}/{}".format(
             params['output_dir'], params['dataset'], self.timestamp)
 
@@ -67,22 +67,33 @@ class BayesGM(object):
             print(self.e_net.summary())
 
     #@tf.function
-    def update_generator(self, data_z, data_x):
+    def update_generator(self, data_z, data_x, eps=1e-6):
         with tf.GradientTape(persistent=True) as gen_tape:
-            data_x_ = self.g_net(data_z)
-            loss_x = tf.reduce_mean((data_x - data_x_)**2)
+            mu = self.g_net(data_z)[:,:self.params['x_dim']]
+            if 'sigma' in self.params:
+                sigma_square = self.params['sigma']**2
+            else:
+                sigma_square = tf.nn.relu(self.g_net(data_z)[:,-1:])+eps
+            #loss = -log(p(x|z))
+            loss_mse = tf.reduce_mean((data_x - mu)**2)
+            loss_x = tf.reduce_mean((data_x - mu)**2/(2*sigma_square)) + \
+                    tf.reduce_mean(tf.math.log(sigma_square))/2
 
         # Calculate the gradients for generators and discriminators
         g_e_gradients = gen_tape.gradient(loss_x, self.g_net.trainable_variables)
         
         # Apply the gradients to the optimizer
         self.g_e_optimizer.apply_gradients(zip(g_e_gradients, self.g_net.trainable_variables))
-        return loss_x
+        return loss_x, loss_mse
 
-    def get_log_posterior(self, data_z, x):
+    def get_log_posterior(self, data_z, x, eps=1e-6):
         x = np.expand_dims(x, axis=0)
-        data_x_ = self.g_net(data_z) 
-        log_likelihood = -np.sum((x-data_x_)**2,axis=1)/(2*self.params['sigma']**2)
+        mu = self.g_net(data_z)[:,:self.params['x_dim']]
+        if 'sigma' in self.params:
+            sigma_square = self.params['sigma']**2
+        else:
+            sigma_square = tf.nn.relu(self.g_net(data_z)[:,-1:])+eps
+        log_likelihood = -np.sum((x-mu)**2/(2*sigma_square),axis=1)-np.log(sigma_square)*self.params['x_dim']/2
         log_prior = -np.sum(data_z**2,axis=1)/2
         log_posterior = log_likelihood + log_prior
         return log_posterior
@@ -109,15 +120,21 @@ class BayesGM(object):
         return z_chain[-1]
     
     #@tf.function
-    def update_latent_variable_sgd(self, data_z, data_x):
+    def update_latent_variable_sgd(self, data_z, data_x, eps=1e-6):
         #print('1',data_z,data_z.trainable)
         #print(self.g_net.trainable_variables)
         #sys.exit()
         #print(self.g_net.trainable_variables[0])
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(data_z)
-            data_x_ = self.g_net(data_z)
-            loss_postrior = tf.reduce_mean((data_x - data_x_)**2/self.params['sigma']**2) + tf.reduce_mean(data_z**2)
+            mu = self.g_net(data_z)[:,:self.params['x_dim']]
+            if 'sigma' in self.params:
+                sigma_square = self.params['sigma']**2
+            else:
+                sigma_square = tf.nn.relu(self.g_net(data_z)[:,-1:])+eps
+            loss_postrior = tf.reduce_mean((data_x - mu)**2/(2*sigma_square)) + \
+                    tf.reduce_mean(tf.math.log(sigma_square))/2 + \
+                    tf.reduce_mean(data_z**2)/2
 
         #self.posterior_optimizer.build(data_z)
         # Calculate the gradients for generators and discriminators
@@ -165,7 +182,7 @@ class BayesGM(object):
             batch_z = tf.Variable(tf.gather(self.data_z, sample_idx, axis = 0), name='batch_z')
 
             batch_x = self.data_obs[sample_idx]
-            loss_x = self.update_generator(batch_z, batch_x)
+            loss_x, loss_mse = self.update_generator(batch_z, batch_x)
             #update Z by maximizing a posterior or posterior mean
             #batch_z_new, nb_z_list, K_list = self.update_latent_variable(batch_z, batch_x)
             #print('before',batch_z)
@@ -181,8 +198,8 @@ class BayesGM(object):
             #print(self.data_z.device, batch_z.device)
             if batch_idx % batches_per_eval == 0:
                 self.history_loss.append([loss_x, loss_postrior])
-                loss_contents = '''Iteration [%d, %.1f] : loss_x [%.4f], loss_postrior [%.4f], mean effective ss [%.4f], mean constant K [%.4f]''' \
-                %(batch_idx, time.time()-t0, loss_x, loss_postrior, np.mean(nb_z_list), np.mean(K_list))
+                loss_contents = '''Iteration [%d, %.1f] : loss_x [%.4f],loss_mse [%.4f] loss_postrior [%.4f], mean effective ss [%.4f], mean constant K [%.4f]''' \
+                %(batch_idx, time.time()-t0, loss_x, loss_mse, loss_postrior, np.mean(nb_z_list), np.mean(K_list))
                 if verbose:
                     print(loss_contents)
                 self.history_z.append(copy.copy(self.data_z))
