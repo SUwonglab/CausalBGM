@@ -5,6 +5,5 @@ x_dim: 10
 lr: 0.01
 g_units: [5,10]
 e_units: [10,5]
-sigma: 0.5
 save_res: True
 save_model: False
