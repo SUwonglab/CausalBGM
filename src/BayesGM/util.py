@@ -29,10 +29,10 @@ def make_swiss_roll(n_samples=100, noise=(0.1, 0.6), random_state=None):
     """
     np.random.seed(random_state)
     t = 1.5 * np.pi * (1 + 2 * np.random.uniform(size=n_samples))
-    y = 21 * np.random.uniform(size=n_samples)
+    y = 10 * np.random.uniform(size=n_samples)
 
-    x = t * np.cos(t)
-    z = t * np.sin(t)
+    x = 0.5*t * np.cos(t)
+    z = 0.5*t * np.sin(t)
     X = np.vstack((x, y, z))
     lb, ub = noise
     sd_t = ((t-np.min(t))*(ub-lb))/(np.max(t)-np.min(t))+lb
