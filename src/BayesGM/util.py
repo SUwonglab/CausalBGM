@@ -5,6 +5,7 @@ import sys
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler,MaxAbsScaler,StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn import datasets
 from scipy.sparse import diags
 from scipy.stats import norm
 
@@ -39,6 +40,36 @@ def make_swiss_roll(n_samples=100, noise=(0.1, 0.6), random_state=None):
     X += np.random.normal(0,sd_t,size=(3, n_samples))
     X = X.T
     return X, t
+
+def make_blobs(n_samples=100, n_features=2, centers=2, cluster_std=1.0, random_state=None):
+    """Generate isotropic Gaussian blobs for clustering.
+    Parameters
+    ----------
+    n_samples : int, default=100
+        The total number of points equally divided among clusters.
+
+    n_features : int, default=2
+        The number of features for each sample.
+
+    centers : int or array of shape [n_centers, n_features], default=3
+        The number of centers to generate, or the fixed center locations.
+
+    cluster_std : float or sequence of floats, default=1.0
+        The standard deviation of the clusters.
+
+    random_state : int, RandomState instance or None, default=None.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, n_features)
+        The generated samples.
+
+    y : ndarray of shape (n_samples,)
+        The integer labels for cluster membership of each sample.
+    """
+    np.random.seed(random_state)
+    X, y = datasets.make_blobs(n_samples=n_samples, n_features=n_features, centers=centers, cluster_std=cluster_std)
+    return X, y
 
 def Dataset_selector(name):
     if name == 'Semi_acic':
