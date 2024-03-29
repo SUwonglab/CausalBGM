@@ -203,8 +203,7 @@ class BayesGM(object):
                 if verbose:
                     print(loss_contents)
                 self.history_z.append(copy.copy(self.data_z))
-                data_x_rec = self.g_net(self.data_z).numpy()
-                np.save('%s/data_x_rec_%d.npy'%(self.save_dir, batch_idx),data_x_rec)
+                np.savez('%s/data_at_%d.npz'%(self.save_dir, batch_idx),data_x_rec=self.g_net(self.data_z).numpy(), data_z=self.data_z.numpy())
                 import matplotlib.pyplot as plt
                 import matplotlib
                 matplotlib.use('Agg')
