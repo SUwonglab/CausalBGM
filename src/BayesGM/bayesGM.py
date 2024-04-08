@@ -20,8 +20,10 @@ class BayesGM(object):
         self.e_net = BaseFullyConnectedNet(input_dim=params['x_dim'],output_dim = params['z_dim'], 
                                         model_name='e_net', nb_units=params['e_units'])
 
-        self.g_e_optimizer = tf.keras.optimizers.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
-        self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
+        #self.g_e_optimizer = tf.keras.optimizers.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
+        self.g_e_optimizer = tf.keras.optimizers.SGD(params['lr_theta'])
+        #self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr'], beta_1=0.5, beta_2=0.9)
+        self.posterior_optimizer = tf.keras.optimizers.legacy.SGD(params['lr_z'])
         self.initialize_nets()
         if self.timestamp is None:
             now = datetime.datetime.now(dateutil.tz.tzlocal())
@@ -164,6 +166,7 @@ class BayesGM(object):
             batch_size=32, n_iter=30000, batches_per_eval=500, batches_per_save=10000,
             startoff=0, verbose=1):
         t0 = time.time()
+        data_obs,y = data_obs
         self.history_z = []
         self.history_loss = []
         self.data_obs = data_obs
@@ -186,15 +189,16 @@ class BayesGM(object):
             #update Z by maximizing a posterior or posterior mean
             #batch_z_new, nb_z_list, K_list = self.update_latent_variable(batch_z, batch_x)
             #print('before',batch_z)
-            loss_postrior, batch_z_new = self.update_latent_variable_sgd(batch_z, batch_x)
-            #print('after',batch_z,batch_z_new)
+            for _ in range(10):
+                loss_postrior, batch_z = self.update_latent_variable_sgd(batch_z, batch_x)
+            #print('after',batch_z)
             #print(batch_idx,batch_z_new)
             nb_z_list, K_list = 0, 0
             # if batch_idx == 3:
             #     sys.exit()
             #variable update rows
             #self.data_z[sample_idx] = batch_z_new
-            self.data_z = tf.compat.v1.scatter_update(self.data_z, sample_idx, batch_z_new)
+            self.data_z = tf.compat.v1.scatter_update(self.data_z, sample_idx, batch_z)
             #print(self.data_z.device, batch_z.device)
             if batch_idx % batches_per_eval == 0:
                 self.history_loss.append([loss_x, loss_postrior])
@@ -211,6 +215,9 @@ class BayesGM(object):
                 plt.violinplot(self.data_z.numpy())
                 plt.savefig('%s/violinplot_%d.png'%(self.save_dir, batch_idx))
                 plt.close()
+                plt.scatter(self.data_z.numpy()[:,0],self.data_z.numpy()[:,1],c=y)
+                plt.savefig('%s/scatter_%d.png'%(self.save_dir, batch_idx))
+                plt.close()
         np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
         plt.plot(np.array(self.history_loss)[:,0])
         plt.xlabel('Per 1000 iteration')
@@ -223,7 +230,76 @@ class BayesGM(object):
         plt.ylabel('Posterior loss')
         plt.savefig('%s/Posterior_loss.png'%(self.save_dir))
         plt.close()
-        
+
+    def train_epoch(self, data_obs, data_z_init=None, normalize=False,
+            batch_size=32, epochs=1000, epochs_per_eval=10,
+            startoff=0, verbose=1):
+        from sklearn import metrics
+        data_obs,y = data_obs
+        t0 = time.time()
+        self.history_z = []
+        self.history_loss = []
+        self.data_obs = data_obs
+        if data_z_init is None:
+            data_z_init = np.random.uniform(0, 1, size = (len(data_obs), self.params['z_dim'])).astype('float32')
+        else:
+            assert len(data_z_init) == len(data_obs), "Sample size does not match!"
+        #self.data_z = data_z_init
+        self.data_z = tf.Variable(data_z_init, name="Latent Variable")
+        self.data_z_init = tf.identity(self.data_z)
+        for epoch in range(epochs+1):
+            sample_idx = np.random.choice(len(data_obs), len(data_obs), replace=False)
+            for i in range(0,len(data_obs),batch_size):
+                batch_idx = sample_idx[i:i+batch_size]
+                #update model parameters of G with SGD
+                #batch_z = self.data_z[batch_idx]
+                batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z')
+                batch_x = self.data_obs[batch_idx]
+                loss_x, loss_mse = self.update_generator(batch_z, batch_x)
+                #update Z by maximizing a posterior or posterior mean
+                #batch_z_new, nb_z_list, K_list = self.update_latent_variable(batch_z, batch_x)
+                #print('before',batch_z)
+                for _ in range(5):
+                    loss_postrior, batch_z= self.update_latent_variable_sgd(batch_z, batch_x)
+                #print('after',batch_z)
+                #print(i, batch_z)
+                nb_z_list, K_list = 0, 0
+                #if i / batch_size  == 3:
+                #    sys.exit()
+                #variable update rows
+                #self.data_z[batch_idx] = batch_z
+                self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
+                #print(self.data_z.device, batch_z.device)
+            if epoch % epochs_per_eval == 0:
+                self.history_loss.append([loss_x, loss_postrior])
+                loss_contents = '''Epoch [%d, %.1f] : loss_x [%.4f],loss_mse [%.4f] loss_postrior [%.4f], mean effective ss [%.4f], mean constant K [%.4f]''' \
+                %(epoch, time.time()-t0, loss_x, loss_mse, loss_postrior, np.mean(nb_z_list), np.mean(K_list))
+                if verbose:
+                    print(loss_contents)
+                self.history_z.append(copy.copy(self.data_z))
+                np.savez('%s/data_at_%d.npz'%(self.save_dir, epoch),data_x_rec=self.g_net(self.data_z).numpy(), data_z=self.data_z.numpy())
+                import matplotlib.pyplot as plt
+                import matplotlib
+                matplotlib.use('Agg')
+                print('mean',tf.reduce_mean(self.data_z))
+                plt.violinplot(self.data_z.numpy())
+                plt.savefig('%s/violinplot_%d.png'%(self.save_dir, epoch))
+                plt.close()
+                plt.scatter(self.data_z.numpy()[:,0],self.data_z.numpy()[:,1],c=y)
+                plt.savefig('%s/scatter_%d.png'%(self.save_dir, epoch))
+                plt.close()
+        np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
+        plt.plot(np.array(self.history_loss)[:,0])
+        plt.xlabel('Per 1000 iteration')
+        plt.ylabel('MLE loss')
+        plt.savefig('%s/MLE_loss.png'%(self.save_dir))
+        plt.close()
+
+        plt.plot(np.array(self.history_loss)[:,1])
+        plt.xlabel('Per 1000 iteration')
+        plt.ylabel('Posterior loss')
+        plt.savefig('%s/Posterior_loss.png'%(self.save_dir))
+        plt.close()
 
 class BayesClusterGM(object):
     def __init__(self, params, timestamp=None, random_seed=None):

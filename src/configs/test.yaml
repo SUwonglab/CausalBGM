@@ -1,9 +1,11 @@
 dataset: test
 output_dir: '.'
 z_dim: 2
-x_dim: 3
-lr: 0.01
-g_units: [5,8,10]
-e_units: [10,8,5]
+x_dim: 5
+sigma: 0.5
+lr_theta: 0.01
+lr_z: 1
+g_units: [5,8,8,8,10]
+e_units: [10,8,8,8,5]
 save_res: True
 save_model: False
