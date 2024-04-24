@@ -18,7 +18,8 @@ class BaseFullyConnectedNet(tf.keras.Model):
             fc_layer = tf.keras.layers.Dense(
                 units = units,
                 activation = None,
-                kernel_regularizer = tf.keras.regularizers.L2(2.5e-5)
+                kernel_regularizer = tf.keras.regularizers.L2(1e-4),
+                bias_regularizer = tf.keras.regularizers.L2(1e-4)
             )   
             norm_layer = tf.keras.layers.BatchNormalization()
             self.all_layers.append([fc_layer, norm_layer])
