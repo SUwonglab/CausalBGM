@@ -554,9 +554,9 @@ class BayesCausalGM(object):
             os.environ['TF_DETERMINISTIC_OPS'] = '1'
         self.g_net = BaseFullyConnectedNet(input_dim=sum(params['z_dims']),output_dim = params['v_dim'], 
                                         model_name='g_net', nb_units=params['g_units'])
-        self.f_net = BaseFullyConnectedNet(input_dim=1+params['z_dims'][0]+params['z_dims'][2],
+        self.f_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][1]+1,
                                         output_dim = 1, model_name='f_net', nb_units=params['f_units'])
-        self.h_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][1],
+        self.h_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][2],
                                         output_dim = 1, model_name='h_net', nb_units=params['h_units'])
         
         self.g_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
@@ -607,15 +607,15 @@ class BayesCausalGM(object):
         """Initialize all the networks in BayesGM."""
 
         self.g_net(np.zeros((1, sum(self.params['z_dims']))))
-        self.f_net(np.zeros((1, 1+self.params['z_dims'][0]+self.params['z_dims'][2])))
-        self.h_net(np.zeros((1, self.params['z_dims'][0]+self.params['z_dims'][1])))
+        self.f_net(np.zeros((1, self.params['z_dims'][0]+self.params['z_dims'][1]+1)))
+        self.h_net(np.zeros((1, self.params['z_dims'][0]+self.params['z_dims'][2])))
         if print_summary:
             print(self.g_net.summary())
             print(self.f_net.summary())    
             print(self.h_net.summary()) 
 
     #update network for covariates V
-    #@tf.function
+    @tf.function
     def update_g_net(self, data_z, data_v, eps=1e-6):
         with tf.GradientTape(persistent=True) as gen_tape:
             mu_v = self.g_net(data_z)[:,:self.params['v_dim']]
@@ -636,30 +636,36 @@ class BayesCausalGM(object):
         return loss_v, loss_mse
     
     #update network for treatment X
-    #@tf.function
+    @tf.function
     def update_h_net(self, data_z, data_x, eps=1e-6):
         with tf.GradientTape(persistent=True) as gen_tape:
             data_z0 = data_z[:,:self.params['z_dims'][0]]
             data_z2 = data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
             mu_x = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
-            if 'sigma_x' in self.params:
-                sigma_square_x = self.params['sigma_x']**2
+            if self.params['binary_treatment']:
+                loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=data_x, 
+                                                        logits=mu_x))
+                loss_x =  loss
             else:
-                sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1:])+eps
-            #loss = -log(p(x|z))
-            loss_mse = tf.reduce_mean((data_x - mu_x)**2)
-            loss_x = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
-                    tf.reduce_mean(tf.math.log(sigma_square_x))/2
-            loss_x = loss_x/self.params['v_dim']
+                if 'sigma_x' in self.params:
+                    sigma_square_x = self.params['sigma_x']**2
+                else:
+                    sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1:])+eps
+                #loss = -log(p(x|z))               
+                loss = tf.reduce_mean((data_x - mu_x)**2)
+                loss_x = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
+                        tf.reduce_mean(tf.math.log(sigma_square_x))/2
+                loss_x = loss_x/self.params['v_dim']
+        
         # Calculate the gradients for generators and discriminators
-        h_gradients = gen_tape.gradient(loss_mse, self.h_net.trainable_variables)
+        h_gradients = gen_tape.gradient(loss, self.h_net.trainable_variables)
         
         # Apply the gradients to the optimizer
         self.h_optimizer.apply_gradients(zip(h_gradients, self.h_net.trainable_variables))
-        return loss_x, loss_mse
+        return loss_x, loss
     
     #update network for outcome Y
-    #@tf.function
+    @tf.function
     def update_f_net(self, data_z, data_x, data_y, eps=1e-6):
         with tf.GradientTape(persistent=True) as gen_tape:
             data_z0 = data_z[:,:self.params['z_dims'][0]]
@@ -698,10 +704,11 @@ class BayesCausalGM(object):
                 sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1:])+eps
 
             mu_x = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
-            if 'sigma_x' in self.params:
-                sigma_square_x = self.params['sigma_x']**2
-            else:
-                sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1:])+eps
+            if not self.params['binary_treatment']:
+                if 'sigma_x' in self.params:
+                    sigma_square_x = self.params['sigma_x']**2
+                else:
+                    sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1:])+eps
 
             mu_y = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
             if 'sigma_y' in self.params:
@@ -711,8 +718,12 @@ class BayesCausalGM(object):
             
             loss_pv_z = tf.reduce_mean((data_v - mu_v)**2/(2*sigma_square_v)) + \
                     tf.reduce_mean(tf.math.log(sigma_square_v))/2
-            loss_px_z = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
-                    tf.reduce_mean(tf.math.log(sigma_square_x))/2
+            if self.params['binary_treatment']:
+                loss_px_z = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=data_x, 
+                                                        logits=mu_x))
+            else:
+                loss_px_z = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
+                        tf.reduce_mean(tf.math.log(sigma_square_x))/2
             loss_py_zx = tf.reduce_mean((data_y - mu_y)**2/(2*sigma_square_y)) + \
                     tf.reduce_mean(tf.math.log(sigma_square_y))/2
             loss_prior_z =  tf.reduce_mean(data_z**2)/2
@@ -827,8 +838,8 @@ class BayesCausalGM(object):
         mse_y = np.mean((self.data_y-data_y_pred)**2)
         if self.params['binary_treatment']:
             #individual treatment effect (ITE) && average treatment effect (ATE)
-            y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(data_x),1))], axis=-1))
-            y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(data_x),1))], axis=-1))
+            y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(self.data_x),1))], axis=-1))
+            y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(self.data_x),1))], axis=-1))
             ite_pre = y_pred_pos-y_pred_neg
             return ite_pre, mse_x, mse_y
         else:
