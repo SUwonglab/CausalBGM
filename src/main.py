@@ -1,6 +1,6 @@
 import yaml
 import argparse
-from BayesGM import BayesCausalGM, Sim_Hirano_Imbens_sampler
+from BayesGM import BayesCausalGM, Sim_Hirano_Imbens_sampler, Semi_acic_sampler
 import numpy as np 
 
 if __name__=="__main__":
@@ -22,3 +22,10 @@ if __name__=="__main__":
     model = BayesCausalGM(params=params, random_seed=123)
     x,y,v = Sim_Hirano_Imbens_sampler(N=2000, v_dim=10).load_all()
     model.train_epoch(data_obs=[x,y,v], epochs=1000, epochs_per_eval=10)
+
+    # model = BayesCausalGM(params=params, random_seed=123)
+    # #x,y,v = Semi_acic_sampler().load_all()
+    # x = np.random.randint(2, size=(2000,1)).astype('float32')
+    # y = np.random.normal(size=(2000,1)).astype('float32')
+    # v = np.random.normal(size=(2000,177)).astype('float32')
+    # model.train_epoch(data_obs=[x,y,v], epochs=5, epochs_per_eval=2)
