@@ -733,16 +733,11 @@ class BayesCausalGM(object):
 
             loss_postrior_z = loss_postrior_z/self.params['v_dim']
 
-        #self.posterior_optimizer.build(data_z)
-        # Calculate the gradients for generators and discriminators
+        # self.posterior_optimizer.build(data_z)
+        # calculate the gradients for generators and discriminators
         posterior_gradients = tape.gradient(loss_postrior_z, [data_z])
-        #print(posterior_gradients)
-        #sys.exit()
-        # Apply the gradients to the optimizer
+        # apply the gradients to the optimizer
         self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
-        #print('2',data_z)
-        #print(self.g_net.trainable_variables[0])
-        #sys.exit()
         return loss_postrior_z, data_z
 
     def train_epoch(self, data_obs, data_z_init=None, normalize=False,
@@ -767,7 +762,6 @@ class BayesCausalGM(object):
             data_z_init = np.random.normal(0, 1, size = (len(self.data_obs), sum(self.params['z_dims']))).astype('float32')
         else:
             assert len(data_z_init) == len(self.data_obs), "Sample size does not match!"
-        #self.data_z = data_z_init
         self.data_z = tf.Variable(data_z_init, name="Latent Variable")
         self.data_z_init = tf.identity(self.data_z)
         best_loss = np.inf
@@ -775,7 +769,7 @@ class BayesCausalGM(object):
             sample_idx = np.random.choice(len(self.data_obs), len(self.data_obs), replace=False)
             for i in range(0,len(self.data_obs),batch_size):
                 batch_idx = sample_idx[i:i+batch_size]
-                #update model parameters of G with SGD
+                # update model parameters of G with SGD
                 batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z')
                 batch_obs = self.data_obs[batch_idx]
                 batch_x = batch_obs[:,:1]
@@ -785,7 +779,7 @@ class BayesCausalGM(object):
                 loss_x, loss_mse_x = self.update_h_net(batch_z, batch_x)
                 loss_y, loss_mse_y = self.update_f_net(batch_z, batch_x, batch_y)
 
-                #update Z by maximizing a posterior or posterior mean
+                # update Z by maximizing a posterior or posterior mean
                 loss_postrior_z, batch_z= self.update_latent_variable_sgd(batch_z, batch_x, batch_y, batch_v)
                 self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
             if epoch % epochs_per_eval == 0:
