@@ -644,14 +644,15 @@ class BayesCausalGM(object):
             mu_x = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
             if self.params['binary_treatment']:
                 loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=data_x, 
-                                                        logits=mu_x))
+                                                       logits=mu_x))
+                #loss = tf.reduce_mean((tf.sigmoid(mu_x) - data_x)**2)
                 loss_x =  loss
             else:
                 if 'sigma_x' in self.params:
                     sigma_square_x = self.params['sigma_x']**2
                 else:
                     sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1:])+eps
-                #loss = -log(p(x|z))               
+                #loss = -log(p(x|z))
                 loss = tf.reduce_mean((data_x - mu_x)**2)
                 loss_x = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
                         tf.reduce_mean(tf.math.log(sigma_square_x))/2
@@ -720,7 +721,8 @@ class BayesCausalGM(object):
                     tf.reduce_mean(tf.math.log(sigma_square_v))/2
             if self.params['binary_treatment']:
                 loss_px_z = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=data_x, 
-                                                        logits=mu_x))
+                                                       logits=mu_x))
+                #loss_px_z = tf.reduce_mean((tf.sigmoid(mu_x) - data_x)**2)
             else:
                 loss_px_z = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
                         tf.reduce_mean(tf.math.log(sigma_square_x))/2
@@ -746,6 +748,12 @@ class BayesCausalGM(object):
     def train_epoch(self, data_obs, data_z_init=None, normalize=False,
             batch_size=32, epochs=1000, epochs_per_eval=10, epochs_per_save=100,
             startoff=0, verbose=1, save_format='txt'):
+        
+        if self.params['save_res']:
+            f_params = open('{}/params.txt'.format(self.save_dir),'w')
+            f_params.write(str(self.params))
+            f_params.close()
+            
         self.data_x, self.data_y, self.data_v = data_obs
         if len(self.data_x.shape) == 1:
             self.data_x = self.data_x.reshape(-1,1)
