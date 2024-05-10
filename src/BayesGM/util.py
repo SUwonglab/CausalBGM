@@ -101,7 +101,8 @@ class Base_sampler(object):
             self.data_y = self.data_y.reshape(-1,1)
         self.batch_size = batch_size
         if normalize:
-            self.data_v = StandardScaler().fit_transform(self.data_v)
+            #self.data_v = StandardScaler().fit_transform(self.data_v)
+            self.data_v = MinMaxScaler().fit_transform(self.data_v)
         self.sample_size = len(x)
         self.full_index = np.arange(self.sample_size)
         np.random.shuffle(self.full_index)

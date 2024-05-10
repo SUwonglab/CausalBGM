@@ -6,6 +6,8 @@ import numpy as np
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-c','--config',type=str, help='the path to config file')
+    parser.add_argument('-z_dims', dest='z_dims', type=int, nargs='+', default=[3,6,3,6],
+                        help='Latent dimensions')
     parser.add_argument('-lr1', dest='lr1', type=float, default=0.0002,
                         help="Learning rate for theta")
     parser.add_argument('-lr2', dest='lr2', type=float, default=0.0002,
@@ -17,6 +19,7 @@ if __name__=="__main__":
     parser.add_argument('-ufid','--ufid',type=str, help='ufid of the dataset')
     args = parser.parse_args()
     config = args.config
+    z_dims = args.z_dims
     lr_theta = args.lr1
     lr_z = args.lr2
     sigma_v = args.sigma_v
@@ -45,11 +48,12 @@ if __name__=="__main__":
 
     #params['sigma_v'] = sigma_v
     #params['sigma_y'] = sigma_y
+    z0,z1,z2,z3 = z_dims
     params['lr_theta'] = lr_theta
     params['lr_z'] = lr_z
-    params['dataset'] = 'Semi_acic_ce_%s_lr_theta=%s_lr_z=%s'%(ufid, lr_theta, lr_z)
+    params['dataset'] = 'Semi_acic_%s_%d_%d_%d_%d_lr_theta=%s_lr_z=%s'%(ufid, z0,z1,z2,z3, lr_theta, lr_z)
     model = BayesCausalGM(params=params, random_seed=123)
     x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
-    model.train_epoch(data_obs=[x,y,v], epochs=1000, epochs_per_eval=100)
+    model.train_epoch(data_obs=[x,y,v], epochs=500, epochs_per_eval=100)
     
     
