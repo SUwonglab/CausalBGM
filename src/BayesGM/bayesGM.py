@@ -907,12 +907,12 @@ class BayesCausalGM(object):
                 if epoch >= startoff and mse_y < best_loss:
                     best_loss = mse_y
                     self.best_causal_pre = causal_pre
-                    self.best_batch_idx = batch_idx
+                    self.best_epoch = epoch
                     if self.params['save_model']:
                         ckpt_save_path = self.ckpt_manager.save(epoch)
-                        #print('Saving checkpoint for iteration {} at {}'.format(batch_idx, ckpt_save_path))
+                        #print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
                 if self.params['save_res'] and epoch > 0 and epoch % epochs_per_save == 0:
-                    self.save('{}/causal_pre_at_{}.{}'.format(self.save_dir, epoch, save_format), self.best_causal_pre)
+                    self.save('{}/causal_pre_at_{}.{}'.format(self.save_dir, epoch, save_format), causal_pre)
 
                 self.history_z.append(copy.copy(self.data_z))
                 data_z0 = self.data_z[:,:self.params['z_dims'][0]]
