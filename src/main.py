@@ -16,7 +16,7 @@ if __name__=="__main__":
                         help="sigma for ccovariates")
     parser.add_argument('-sigma_y', dest='sigma_y', type=float, default=1.,
                         help="sigma for outcome")
-    parser.add_argument('-ufid','--ufid',type=str, help='ufid of the dataset')
+    parser.add_argument('-ufid','--ufid',type=str, help='ufid of the dataset', default='629e3d2c63914e45b227cc913c09cebe')
     args = parser.parse_args()
     config = args.config
     z_dims = args.z_dims
@@ -53,7 +53,10 @@ if __name__=="__main__":
     params['lr_z'] = lr_z
     params['dataset'] = 'Semi_acic_%s_%d_%d_%d_%d_lr_theta=%s_lr_z=%s'%(ufid, z0,z1,z2,z3, lr_theta, lr_z)
     model = BayesCausalGM(params=params, random_seed=123)
-    x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
-    model.train_epoch(data_obs=[x,y,v], epochs=500, epochs_per_eval=100)
+    #x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
+    x = np.random.normal(0,1,size = (2000, 1)).astype('float32')
+    y = np.random.normal(0,1,size = (2000, 1)).astype('float32')
+    v = np.random.normal(0,1,size = (2000, 177)).astype('float32')
+    model.train_epoch(data_obs=[x,y,v], epochs=500, epochs_per_eval=10, pretrain_iter=20000, batches_per_eval=500)
     
     

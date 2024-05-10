@@ -1,5 +1,5 @@
 import tensorflow as tf
-from .model import BaseFullyConnectedNet
+from .model import BaseFullyConnectedNet,Discriminator
 import numpy as np
 import copy
 from .util import *
@@ -554,11 +554,19 @@ class BayesCausalGM(object):
             os.environ['TF_DETERMINISTIC_OPS'] = '1'
         self.g_net = BaseFullyConnectedNet(input_dim=sum(params['z_dims']),output_dim = params['v_dim'], 
                                         model_name='g_net', nb_units=params['g_units'])
+        self.e_net = BaseFullyConnectedNet(input_dim=params['v_dim'],output_dim = sum(params['z_dims']), 
+                                        model_name='e_net', nb_units=params['e_units'])
         self.f_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][1]+1,
                                         output_dim = 1, model_name='f_net', nb_units=params['f_units'])
         self.h_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][2],
                                         output_dim = 1, model_name='h_net', nb_units=params['h_units'])
+        self.dz_net = Discriminator(input_dim=sum(params['z_dims']),model_name='dz_net',
+                                        nb_units=params['dz_units'])
         
+        self.g_pre_optimizer = tf.keras.optimizers.Adam(params['lr'], beta_1=0.9, beta_2=0.99)
+        self.d_pre_optimizer = tf.keras.optimizers.Adam(params['lr'], beta_1=0.9, beta_2=0.99)
+        self.z_sampler = Gaussian_sampler(mean=np.zeros(sum(params['z_dims'])), sd=1.0)
+
         self.g_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
         self.f_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
         self.h_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
@@ -583,8 +591,12 @@ class BayesCausalGM(object):
             os.makedirs(self.save_dir)   
 
         self.ckpt = tf.train.Checkpoint(g_net = self.g_net,
+                                    e_net = self.e_net,
                                     f_net = self.f_net,
                                     h_net = self.h_net,
+                                    dz_net = self.dz_net,
+                                    g_pre_optimizer = self.g_pre_optimizer,
+                                    d_pre_optimizer = self.d_pre_optimizer,
                                     g_optimizer = self.g_optimizer,
                                     f_optimizer = self.f_optimizer,
                                     h_optimizer = self.h_optimizer,
@@ -689,7 +701,7 @@ class BayesCausalGM(object):
         return loss_y, loss_mse
     
     # update posterior of latent variables Z
-    #@tf.function
+    @tf.function
     def update_latent_variable_sgd(self, data_z, data_x, data_y, data_v, eps=1e-6):
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(data_z)
@@ -739,10 +751,109 @@ class BayesCausalGM(object):
         # apply the gradients to the optimizer
         self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
         return loss_postrior_z, data_z
+    
+#################################### Pretrain #############################################
+    @tf.function
+    def train_disc_step(self, data_z, data_v):
+        epsilon_z = tf.random.uniform([],minval=0., maxval=1.)
+        with tf.GradientTape(persistent=True) as disc_tape:
+            with tf.GradientTape() as gp_tape:
+                data_z_ = self.e_net(data_v)
+                data_z_hat = data_z*epsilon_z + data_z_*(1-epsilon_z)
+                data_dz_hat = self.dz_net(data_z_hat)
 
-    def train_epoch(self, data_obs, data_z_init=None, normalize=False,
+            data_dz_ = self.dz_net(data_z_)
+            data_dz = self.dz_net(data_z)
+            dz_loss = -tf.reduce_mean(data_dz) + tf.reduce_mean(data_dz_)
+
+            #gradient penalty 
+            grad_z = gp_tape.gradient(data_dz_hat, data_z_hat) #(bs,z_dim)
+            grad_norm_z = tf.sqrt(tf.reduce_sum(tf.square(grad_z), axis=1))#(bs,) 
+            gpz_loss = tf.reduce_mean(tf.square(grad_norm_z - 1.0))
+            
+            d_loss = dz_loss + self.params['gamma']*gpz_loss
+
+        # Calculate the gradients for generators and discriminators
+        d_gradients = disc_tape.gradient(d_loss, self.dz_net.trainable_variables)
+        
+        # Apply the gradients to the optimizer
+        self.d_pre_optimizer.apply_gradients(zip(d_gradients, self.dz_net.trainable_variables))
+        return dz_loss, d_loss
+    
+    @tf.function
+    def train_gen_step(self, data_z, data_v, data_x, data_y):
+        with tf.GradientTape(persistent=True) as gen_tape:
+            data_v_ = self.g_net(data_z)
+            data_z_ = self.e_net(data_v)
+            
+            data_z0 = data_z_[:,:self.params['z_dims'][0]]
+            data_z1 = data_z_[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
+            data_z2 = data_z_[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
+
+            data_z__= self.e_net(data_v_)
+            data_v__ = self.g_net(data_z_)
+            
+            data_dz_ = self.dz_net(data_z_)
+            
+            l2_loss_v = tf.reduce_mean((data_v - data_v__)**2)
+            l2_loss_z = tf.reduce_mean((data_z - data_z__)**2)
+            
+            e_loss_adv = -tf.reduce_mean(data_dz_)
+
+            data_y_ = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))
+            data_x_ = self.h_net(tf.concat([data_z0, data_z2], axis=-1))
+
+            if self.params['binary_treatment']:
+                data_x_ = tf.sigmoid(data_x_)
+            l2_loss_x = tf.reduce_mean((data_x_ - data_x)**2)
+            l2_loss_y = tf.reduce_mean((data_y_ - data_y)**2)
+            g_e_loss = e_loss_adv+self.params['alpha']*(l2_loss_v + self.params['use_z_rec']*l2_loss_z) \
+                        + self.params['beta']*(l2_loss_x+l2_loss_y)
+
+        # Calculate the gradients for generators and discriminators
+        g_e_gradients = gen_tape.gradient(g_e_loss, self.g_net.trainable_variables+self.e_net.trainable_variables+\
+                                        self.f_net.trainable_variables+self.h_net.trainable_variables)
+        
+        # Apply the gradients to the optimizer
+        self.g_pre_optimizer.apply_gradients(zip(g_e_gradients, self.g_net.trainable_variables+self.e_net.trainable_variables+\
+                                            self.f_net.trainable_variables+self.h_net.trainable_variables))
+        return e_loss_adv, l2_loss_v, l2_loss_z, l2_loss_x, l2_loss_y, g_e_loss
+    
+
+    def pretrain(self, n_iter=10000, batch_size=32, batches_per_eval=500, verbose=1):
+        for batch_iter in range(n_iter+1):
+            # update model parameters of Discriminator
+            for _ in range(self.params['g_d_freq']):
+                batch_idx = np.random.choice(len(self.data_obs), batch_size, replace=False)
+                batch_obs = self.data_obs[batch_idx]
+                batch_z = self.z_sampler.get_batch(batch_size)
+                batch_v = batch_obs[:,2:]
+                dz_loss, d_loss = self.train_disc_step(batch_z, batch_v)
+
+            # update model parameters of G, H, F with SGD
+            batch_z = self.z_sampler.get_batch(batch_size)
+            batch_idx = np.random.choice(len(self.data_obs), batch_size, replace=False)
+            batch_obs = self.data_obs[batch_idx]
+            batch_x = batch_obs[:,:1]
+            batch_y = batch_obs[:,1:2]
+            batch_v = batch_obs[:,2:]
+            e_loss_adv, l2_loss_v, l2_loss_z, l2_loss_x, l2_loss_y, g_e_loss = self.train_gen_step(batch_z, batch_v, batch_x, batch_y)
+            if batch_iter % batches_per_eval == 0:
+                loss_contents = '''Pretrain Iter [%d] : e_loss_adv [%.4f],\
+                l2_loss_v [%.4f], l2_loss_z [%.4f], l2_loss_x [%.4f],\
+                l2_loss_y [%.4f], g_e_loss [%.4f], dz_loss [%.4f], d_loss [%.4f]''' \
+                %(batch_iter, e_loss_adv , l2_loss_v, l2_loss_z, l2_loss_x, l2_loss_y, g_e_loss,
+                dz_loss, d_loss)
+                if verbose:
+                    print(loss_contents)
+                    causal_pre, _, mse_y = self.evaluate(stage='pretrain')
+                    if self.params['save_res']:
+                        self.save('{}/causal_pre_at_pretrain_iter-{}.txt'.format(self.save_dir, batch_iter), causal_pre)
+#################################### Pretrain #############################################
+
+    def train_epoch(self, data_obs, data_z_init=None,
             batch_size=32, epochs=1000, epochs_per_eval=10, epochs_per_save=100,
-            startoff=0, verbose=1, save_format='txt'):
+            startoff=0, verbose=1, save_format='txt',pretrain_iter=10000, batches_per_eval=500):
         
         if self.params['save_res']:
             f_params = open('{}/params.txt'.format(self.save_dir),'w')
@@ -759,9 +870,12 @@ class BayesCausalGM(object):
         self.history_loss = []
         self.data_obs = np.concatenate([self.data_x, self.data_y, self.data_v], axis=-1)
         if data_z_init is None:
-            data_z_init = np.random.normal(0, 1, size = (len(self.data_obs), sum(self.params['z_dims']))).astype('float32')
-        else:
-            assert len(data_z_init) == len(self.data_obs), "Sample size does not match!"
+            if self.params['pretrain']:
+                self.pretrain(n_iter=pretrain_iter, batch_size=batch_size, batches_per_eval=batches_per_eval, verbose=verbose)
+                data_z_init = self.e_net(self.data_v)
+            else:
+                data_z_init = np.random.normal(0, 1, size = (len(self.data_obs), sum(self.params['z_dims']))).astype('float32')
+
         self.data_z = tf.Variable(data_z_init, name="Latent Variable")
         self.data_z_init = tf.identity(self.data_z)
         best_loss = np.inf
@@ -769,7 +883,7 @@ class BayesCausalGM(object):
             sample_idx = np.random.choice(len(self.data_obs), len(self.data_obs), replace=False)
             for i in range(0,len(self.data_obs),batch_size):
                 batch_idx = sample_idx[i:i+batch_size]
-                # update model parameters of G with SGD
+                # update model parameters of G, H, F with SGD
                 batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z')
                 batch_obs = self.data_obs[batch_idx]
                 batch_x = batch_obs[:,:1]
@@ -789,7 +903,7 @@ class BayesCausalGM(object):
                 %(epoch, time.time()-t0, loss_x, loss_mse_x, loss_y, loss_mse_y, loss_v, loss_mse_v, loss_postrior_z)
                 if verbose:
                     print(loss_contents)
-                causal_pre, _, mse_y = self.evaluate()
+                causal_pre, _, mse_y = self.evaluate(stage='train')
                 if epoch >= startoff and mse_y < best_loss:
                     best_loss = mse_y
                     self.best_causal_pre = causal_pre
@@ -828,7 +942,9 @@ class BayesCausalGM(object):
             self.ATE = np.mean(self.best_causal_pre)
             print('The average treatment effect (ATE) is', self.ATE)
 
-    def evaluate(self, nb_intervals=200):
+    def evaluate(self, nb_intervals=200, stage='pretrain'):
+        if stage == 'pretrain':
+            self.data_z = self.e_net(self.data_v)
         data_z0 = self.data_z[:,:self.params['z_dims'][0]]
         data_z1 = self.data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
         data_z2 = self.data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]

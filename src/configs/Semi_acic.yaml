@@ -13,3 +13,12 @@ h_units: [64,32,8]
 save_res: True
 save_model: False
 binary_treatment: True
+pretrain: True
+lr: 0.0002
+alpha: 1
+beta: 1
+gamma: 10
+g_d_freq: 5
+use_z_rec: True
+e_units: [64,64,64,64,64]
+dz_units: [64,32,8]
