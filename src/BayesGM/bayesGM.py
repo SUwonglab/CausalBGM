@@ -701,7 +701,7 @@ class BayesCausalGM(object):
         return loss_y, loss_mse
     
     # update posterior of latent variables Z
-    @tf.function
+    #@tf.function
     def update_latent_variable_sgd(self, data_z, data_x, data_y, data_v, eps=1e-6):
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(data_z)

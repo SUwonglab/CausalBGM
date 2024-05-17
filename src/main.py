@@ -53,10 +53,11 @@ if __name__=="__main__":
     params['lr_z'] = lr_z
     params['dataset'] = 'Semi_acic_%s_%d_%d_%d_%d_lr_theta=%s_lr_z=%s'%(ufid, z0,z1,z2,z3, lr_theta, lr_z)
     model = BayesCausalGM(params=params, random_seed=123)
-    #x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
-    x = np.random.normal(0,1,size = (2000, 1)).astype('float32')
-    y = np.random.normal(0,1,size = (2000, 1)).astype('float32')
-    v = np.random.normal(0,1,size = (2000, 177)).astype('float32')
-    model.train_epoch(data_obs=[x,y,v], epochs=500, epochs_per_eval=10, pretrain_iter=20000, batches_per_eval=500)
+    x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
+    #x = np.random.normal(0,1,size = (2000, 1)).astype('float32')
+    #y = np.random.normal(0,1,size = (2000, 1)).astype('float32')
+    #v = np.random.normal(0,1,size = (2000, 177)).astype('float32')
+    #model.train_epoch(data_obs=[x,y,v], epochs=5, epochs_per_eval=2, epochs_per_save=2, pretrain_iter=5, batches_per_eval=2)
+    model.train_epoch(data_obs=[x,y,v], epochs=200, epochs_per_eval=10, epochs_per_save=10, pretrain_iter=20000, batches_per_eval=500)
     
     
