@@ -852,8 +852,8 @@ class BayesCausalGM(object):
 #################################### Pretrain #############################################
 
     def train_epoch(self, data_obs, data_z_init=None,
-            batch_size=32, epochs=1000, epochs_per_eval=10, epochs_per_save=100,
-            startoff=0, verbose=1, save_format='txt',pretrain_iter=10000, batches_per_eval=500):
+            batch_size=32, epochs=100, epochs_per_eval=5, startoff=0,
+            verbose=1, save_format='txt',pretrain_iter=10000, batches_per_eval=500):
         
         if self.params['save_res']:
             f_params = open('{}/params.txt'.format(self.save_dir),'w')
@@ -897,13 +897,12 @@ class BayesCausalGM(object):
                 loss_postrior_z, batch_z= self.update_latent_variable_sgd(batch_z, batch_x, batch_y, batch_v)
                 self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
             if epoch % epochs_per_eval == 0:
-                self.history_loss.append([loss_x, loss_y, loss_v, loss_postrior_z])
-
                 loss_contents = '''Epoch [%d, %.1f]: loss_px_z [%.4f], loss_mse_x [%.4f], loss_py_z [%.4f], loss_mse_y [%.4f], loss_pv_z [%.4f], loss_mse_v [%.4f], loss_postrior_z [%.4f]''' \
                 %(epoch, time.time()-t0, loss_x, loss_mse_x, loss_y, loss_mse_y, loss_v, loss_mse_v, loss_postrior_z)
                 if verbose:
                     print(loss_contents)
-                causal_pre, _, mse_y = self.evaluate(stage='train')
+                causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage='train')
+                self.history_loss.append([mse_x, mse_y, mse_v])
                 if epoch >= startoff and mse_y < best_loss:
                     best_loss = mse_y
                     self.best_causal_pre = causal_pre
@@ -911,7 +910,7 @@ class BayesCausalGM(object):
                     if self.params['save_model']:
                         ckpt_save_path = self.ckpt_manager.save(epoch)
                         #print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
-                if self.params['save_res'] and epoch > 0 and epoch % epochs_per_save == 0:
+                if self.params['save_res']:
                     self.save('{}/causal_pre_at_{}.{}'.format(self.save_dir, epoch, save_format), causal_pre)
 
                 self.history_z.append(copy.copy(self.data_z))
@@ -948,10 +947,12 @@ class BayesCausalGM(object):
         data_z0 = self.data_z[:,:self.params['z_dims'][0]]
         data_z1 = self.data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
         data_z2 = self.data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
+        data_v_pred = self.g_net(self.data_z)[:,:self.params['v_dim']]
         data_y_pred = self.f_net(tf.concat([data_z0, data_z1, self.data_x], axis=-1))
         data_x_pred = self.h_net(tf.concat([data_z0, data_z2], axis=-1))
         if self.params['binary_treatment']:
             data_x_pred = tf.sigmoid(data_x_pred)
+        mse_v = np.mean((self.data_v-data_v_pred)**2)
         mse_x = np.mean((self.data_x-data_x_pred)**2)
         mse_y = np.mean((self.data_y-data_y_pred)**2)
         if self.params['binary_treatment']:
@@ -959,7 +960,7 @@ class BayesCausalGM(object):
             y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(self.data_x),1))], axis=-1))
             y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(self.data_x),1))], axis=-1))
             ite_pre = y_pred_pos-y_pred_neg
-            return ite_pre, mse_x, mse_y
+            return ite_pre, mse_x, mse_y, mse_v
         else:
             #average dose response function (ADRF)
             dose_response = []
@@ -967,7 +968,7 @@ class BayesCausalGM(object):
                 data_x = np.tile(x, (len(self.data_x), 1))
                 y_pred = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))
                 dose_response.append(np.mean(y_pred))
-            return np.array(dose_response), mse_x, mse_y
+            return np.array(dose_response), mse_x, mse_y, mse_v
         
     def save(self, fname, data):
         """Save the data to the specified path."""
