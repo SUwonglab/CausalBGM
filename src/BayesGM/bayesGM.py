@@ -846,7 +846,7 @@ class BayesCausalGM(object):
                 dz_loss, d_loss)
                 if verbose:
                     print(loss_contents)
-                    causal_pre, _, mse_y = self.evaluate(stage='pretrain')
+                    causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage='pretrain')
                     if self.params['save_res']:
                         self.save('{}/causal_pre_at_pretrain_iter-{}.txt'.format(self.save_dir, batch_iter), causal_pre)
 #################################### Pretrain #############################################
