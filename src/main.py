@@ -1,6 +1,6 @@
 import yaml
 import argparse
-from BayesGM import BayesCausalGM, Sim_Hirano_Imbens_sampler, Semi_acic_sampler
+from BayesGM import BayesCausalGM, BayesPredGM, Sim_Hirano_Imbens_sampler, Semi_acic_sampler
 import numpy as np 
 
 if __name__=="__main__":
@@ -45,15 +45,26 @@ if __name__=="__main__":
 #         for sigma_y in [0.1,0.5,1,2,5]:
 #             for lr_theta in [0.0001,0.001,0.005, 0.01, 0.05, 0.1]:
 #                 for lr_z in [0.0001,0.001,0.005, 0.01, 0.05, 0.1]:
-
+    # Causal settings
     #params['sigma_v'] = sigma_v
     #params['sigma_y'] = sigma_y
-    z0,z1,z2,z3 = z_dims
-    params['lr_theta'] = lr_theta
-    params['lr_z'] = lr_z
-    params['dataset'] = 'Semi_acic_%s_%d_%d_%d_%d_lr_theta=%s_lr_z=%s'%(ufid, z0,z1,z2,z3, lr_theta, lr_z)
-    model = BayesCausalGM(params=params, random_seed=123)
-    x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
-    model.train_epoch(data_obs=[x,y,v], epochs=200, epochs_per_eval=10, pretrain_iter=20000, batches_per_eval=500)
+    # z0,z1,z2,z3 = z_dims
+    # params['lr_theta'] = lr_theta
+    # params['lr_z'] = lr_z
+    # params['dataset'] = 'Semi_acic_%s_%d_%d_%d_%d_lr_theta=%s_lr_z=%s'%(ufid, z0,z1,z2,z3, lr_theta, lr_z)
+    # model = BayesCausalGM(params=params, random_seed=123)
+    # x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
+    # model.train_epoch(data_obs=[x,y,v], epochs=200, epochs_per_eval=10, pretrain_iter=20000, batches_per_eval=500)
+
+    # Prediction interval settings
+    from sklearn.datasets import make_regression
+    X, y = make_regression(n_samples=2000, n_features=5, n_targets=1, noise=1, random_state=123)
+    y = np.expm1((y + abs(y.min())) / 200)
+    y = np.log1p(y)
+    y = y.reshape(-1,1)
+    model = BayesPredGM(params=params, random_seed=123)
+    model.train_epoch(data_obs=[X,y], epochs=500, epochs_per_eval=5)
+
+
     
     
