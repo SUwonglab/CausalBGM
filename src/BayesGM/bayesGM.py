@@ -1109,7 +1109,7 @@ class BayesPredGM(object):
         self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
         return loss_postrior_z, data_z
     
-    def train_epoch(self, data_obs, data_z_init=None,
+    def train_epoch(self, data_train, data_test, data_z_init=None,
             batch_size=32, epochs=100, epochs_per_eval=5, startoff=0,
             verbose=1, save_format='txt'):
         
@@ -1121,15 +1121,7 @@ class BayesPredGM(object):
         t0 = time.time()
         self.history_z = []
         self.history_loss = []
-        self.data_x, self.data_y = data_obs
-        
-        from sklearn.datasets import make_regression
-        X_test, y_test = make_regression(n_samples=1000, n_features=5, n_targets=1, noise=1, random_state=1)
-        y_test = np.expm1((y_test + abs(y_test.min())) / 200)
-        y_test = np.log1p(y_test)
-        y_test = y_test.reshape(-1,1)
-        self.X_test = X_test
-        self.y_test = y_test
+        self.data_x, self.data_y = data_train
 
         assert len(self.data_x) == len(self.data_y), "X and Y should be the same length"
 
@@ -1153,7 +1145,7 @@ class BayesPredGM(object):
                 loss_postrior_z, batch_z= self.update_latent_variable_sgd(batch_z, batch_x, batch_y)
                 self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
             if epoch % epochs_per_eval == 0:
-                mse_y = self.evaluate()
+                mu_y, y_pred_all, mse_y = self.evaluate(data_test)
                 self.history_loss.append(mse_y)
                 loss_contents = '''Epoch [%d, %.1f]: mse_y [%.4f], loss_x_mse [%.4f], loss_y_mse [%.4f], loss_postrior_z [%.4f]''' \
                 %(epoch, time.time()-t0, mse_y, loss_x_mse, loss_y_mse, loss_postrior_z)
@@ -1168,7 +1160,9 @@ class BayesPredGM(object):
 
                 self.history_z.append(copy.copy(self.data_z))
                 np.savez('%s/data_at_%d.npz'%(self.save_dir, epoch), data_z=self.data_z.numpy(),
-                        data_v_rec=self.g_net(self.data_z).numpy())
+                        data_v_rec=self.g_net(self.data_z).numpy(),
+                        y_pred = mu_y,
+                        y_pred_all = y_pred_all)
                 import matplotlib.pyplot as plt
                 import matplotlib
                 matplotlib.use('Agg')
@@ -1182,17 +1176,17 @@ class BayesPredGM(object):
                 plt.close()
         np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
 
-    def evaluate(self):
+    def evaluate(self, data):
+        data_x_test, data_y_test = data
         #P(Y|X)
-        data_pz_x = self.metropolis_hastings_sampler(self.X_test) #(n_keep, n, q)
+        data_pz_x = self.metropolis_hastings_sampler(data_x_test) #(n_keep, n, q)
         #(n_keep, n, y_dim)
-        #y_pred = np.array(list(map(self.g_net, data_pz_x)))[:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
+        y_pred_all = np.array(list(map(self.g_net, data_pz_x)))[:,:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
         #mu_y = np.mean(y_pred, axis=0)
-        
         posterior_mean_z = np.mean(data_pz_x, axis=0)
         mu_y = self.g_net(posterior_mean_z)[:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
-        mse_y = np.mean((self.y_test-mu_y)**2)
-        return mse_y
+        mse_y = np.mean((data_y_test-mu_y)**2)
+        return mu_y, y_pred_all, mse_y
         
     def get_log_posterior(self, data_x, data_z, eps=1e-6):
         """
@@ -1215,7 +1209,7 @@ class BayesPredGM(object):
         return log_posterior
 
 
-    def metropolis_hastings_sampler(self, data_x, q_sd = 1., burn_in = 2000, n_keep = 50):
+    def metropolis_hastings_sampler(self, data_x, q_sd = 1., burn_in = 5000, n_keep = 50):
         """
         Samples from the posterior distribution P(Z|X=x) using the Metropolis-Hastings algorithm.
 

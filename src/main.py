@@ -62,8 +62,15 @@ if __name__=="__main__":
     y = np.expm1((y + abs(y.min())) / 200)
     y = np.log1p(y)
     y = y.reshape(-1,1)
-    model = BayesPredGM(params=params, random_seed=123)
-    model.train_epoch(data_obs=[X,y], epochs=500, epochs_per_eval=5)
+    X = X.astype('float32')
+    y = y.astype('float32')
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
+    model = BayesPredGM(params = params, random_seed = 123)
+    model.train_epoch(data_train = [X_train,y_train], 
+                      data_test = [X_test,y_test],
+                      epochs=30, 
+                      epochs_per_eval=1)
 
 
     
