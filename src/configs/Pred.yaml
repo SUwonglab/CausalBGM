@@ -6,7 +6,8 @@ y_dim: 1
 sigma_x: 0.5
 sigma_y: 0.5
 lr_theta: 0.005
-lr_z: 0.005
-g_units: [32,32,32,32]
+lr_z: 0.1
+gx_units: [32,16,8,6]
+gy_units: [32,16,8,4]
 save_res: True
 save_model: True

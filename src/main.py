@@ -69,8 +69,8 @@ if __name__=="__main__":
     model = BayesPredGM(params = params, random_seed = 123)
     model.train_epoch(data_train = [X_train,y_train], 
                       data_test = [X_test,y_test],
-                      epochs=30, 
-                      epochs_per_eval=1)
+                      epochs=20,
+                      epochs_per_eval=2)
 
 
     

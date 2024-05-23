@@ -990,13 +990,16 @@ class BayesPredGM(object):
         if random_seed is not None:
             tf.keras.utils.set_random_seed(random_seed)
             os.environ['TF_DETERMINISTIC_OPS'] = '1'
-        self.g_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim']+params['y_dim'], 
-                                        model_name='g_net', nb_units=params['g_units'])
+        self.gx_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim']+1, 
+                                        model_name='gx_net', nb_units=params['gx_units'])
 
-        self.g_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
-        #self.g_optimizer = tf.keras.optimizers.SGD(params['lr_theta'])
+        self.gy_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['y_dim']+1, 
+                                        model_name='gy_net', nb_units=params['gy_units'])
+                                        
+        self.gx_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
+        self.gy_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
         self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr_z'], beta_1=0.9, beta_2=0.99)
-        #self.posterior_optimizer = tf.keras.optimizers.legacy.SGD(params['lr_z'])
+
         self.initialize_nets()
         if self.timestamp is None:
             now = datetime.datetime.now(dateutil.tz.tzlocal())
@@ -1014,8 +1017,10 @@ class BayesPredGM(object):
         if self.params['save_res'] and not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)   
 
-        self.ckpt = tf.train.Checkpoint(g_net = self.g_net,
-                                    g_optimizer = self.g_optimizer,
+        self.ckpt = tf.train.Checkpoint(gx_net = self.gx_net,
+                                    gy_net = self.gy_net,
+                                    gx_optimizer = self.gx_optimizer,
+                                    gy_optimizer = self.gy_optimizer,
                                     posterior_optimizer = self.posterior_optimizer)
         
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=3)                 
@@ -1034,43 +1039,55 @@ class BayesPredGM(object):
     def initialize_nets(self, print_summary = False):
         """Initialize all the networks in BayesGM."""
 
-        self.g_net(np.zeros((1, self.params['z_dim'])))
+        self.gx_net(np.zeros((1, self.params['z_dim'])))
+        self.gy_net(np.zeros((1, self.params['z_dim'])))
         if print_summary:
-            print(self.g_net.summary())
+            print(self.gx_net.summary())
+            print(self.gy_net.summary())
 
-    #update network for x and y
+    #update network for x
     @tf.function
-    def update_g_net(self, data_z, data_x, data_y, eps=1e-6):
-        with tf.GradientTape(persistent=True) as gen_tape:
-            mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+    def update_gx_net(self, data_z, data_x, eps=1e-6):
+        with tf.GradientTape(persistent=True) as gen_tape_x:
+            mu_x = self.gx_net(data_z)[:,:self.params['x_dim']]
             if 'sigma_x' in self.params:
                 sigma_square_x = self.params['sigma_x']**2
             else:
-                sigma_square_x = tf.nn.relu(self.g_net(data_z)[:,-2:-1])+eps
-
-            mu_y = self.g_net(data_z)[:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
-            if 'sigma_y' in self.params:
-                sigma_square_y = self.params['sigma_y']**2
-            else:
-                sigma_square_y = tf.nn.relu(self.g_net(data_z)[:,-1:])+eps
+                sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1:])+eps
 
             #loss = -log(p(x|z))
-            loss_x_mse = tf.reduce_mean((data_x - mu_x)**2)
+            loss_mse = tf.reduce_mean((data_x - mu_x)**2)
             loss_x = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
                     tf.reduce_mean(tf.math.log(sigma_square_x))/2
 
+        # Calculate the gradients for generator
+        gx_gradients = gen_tape_x.gradient(loss_mse, self.gx_net.trainable_variables)
+        
+        # Apply the gradients to the optimizer
+        self.gx_optimizer.apply_gradients(zip(gx_gradients, self.gx_net.trainable_variables))
+        return loss_x, loss_mse
+
+    #update network for y
+    @tf.function
+    def update_gy_net(self, data_z, data_y, eps=1e-6):
+        with tf.GradientTape(persistent=True) as gen_tape_y:
+            mu_y = self.gy_net(data_z)[:,:self.params['y_dim']]
+            if 'sigma_y' in self.params:
+                sigma_square_y = self.params['sigma_y']**2
+            else:
+                sigma_square_y = tf.nn.relu(self.gy_net(data_z)[:,-1:])+eps
+
             #loss = -log(p(y|z))
-            loss_y_mse = tf.reduce_mean((data_y - mu_y)**2)
+            loss_mse = tf.reduce_mean((data_y - mu_y)**2)
             loss_y = tf.reduce_mean((data_y - mu_y)**2/(2*sigma_square_y)) + \
                     tf.reduce_mean(tf.math.log(sigma_square_y))/2
 
-            loss_mse = loss_x_mse + loss_y_mse
-        # Calculate the gradients for generators and discriminators
-        g_gradients = gen_tape.gradient(loss_mse, self.g_net.trainable_variables)
+        # Calculate the gradients for generator
+        gy_gradients = gen_tape_y.gradient(loss_mse, self.gy_net.trainable_variables)
         
         # Apply the gradients to the optimizer
-        self.g_optimizer.apply_gradients(zip(g_gradients, self.g_net.trainable_variables))
-        return loss_x, loss_y, loss_x_mse, loss_y_mse
+        self.gy_optimizer.apply_gradients(zip(gy_gradients, self.gy_net.trainable_variables))
+        return loss_y, loss_mse
 
     # update posterior of latent variables Z
     #@tf.function
@@ -1078,17 +1095,17 @@ class BayesPredGM(object):
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(data_z)
 
-            mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+            mu_x = self.gx_net(data_z)[:,:self.params['x_dim']]
             if 'sigma_x' in self.params:
                 sigma_square_x = self.params['sigma_x']**2
             else:
-                sigma_square_x = tf.nn.relu(self.g_net(data_z)[:,-2:-1])+eps
+                sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1:])+eps
 
-            mu_y = self.g_net(data_z)[:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
+            mu_y = self.gy_net(data_z)[:,:self.params['y_dim']]
             if 'sigma_y' in self.params:
                 sigma_square_y = self.params['sigma_y']**2
             else:
-                sigma_square_y = tf.nn.relu(self.g_net(data_z)[:,-1:])+eps
+                sigma_square_y = tf.nn.relu(self.gy_net(data_z)[:,-1:])+eps
             
             loss_px_z = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
                     tf.reduce_mean(tf.math.log(sigma_square_x))/2
@@ -1134,21 +1151,27 @@ class BayesPredGM(object):
         for epoch in range(epochs+1):
             sample_idx = np.random.choice(len(self.data_x), len(self.data_x), replace=False)
             for i in range(0,len(self.data_x),batch_size):
+                # get batch data
                 batch_idx = sample_idx[i:i+batch_size]
-                # update model parameters of G with SGD
                 batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z')
                 batch_x = self.data_x[batch_idx]
                 batch_y = self.data_y[batch_idx]
-                loss_x, loss_y, loss_x_mse, loss_y_mse = self.update_g_net(batch_z, batch_x, batch_y)
+
+                # update model parameters of G_x with SGD
+                loss_x, loss_x_mse = self.update_gx_net(batch_z, batch_x)
+
+                # update model parameters of G_y with SGD
+                loss_y, loss_y_mse = self.update_gy_net(batch_z, batch_y)
 
                 # update Z by maximizing a posterior or posterior mean
                 loss_postrior_z, batch_z= self.update_latent_variable_sgd(batch_z, batch_x, batch_y)
                 self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
+            
             if epoch % epochs_per_eval == 0:
-                mu_y, y_pred_all, mse_y = self.evaluate(data_test)
+                y_pred_all, mse_y, corr = self.evaluate(data_test)
                 self.history_loss.append(mse_y)
-                loss_contents = '''Epoch [%d, %.1f]: mse_y [%.4f], loss_x_mse [%.4f], loss_y_mse [%.4f], loss_postrior_z [%.4f]''' \
-                %(epoch, time.time()-t0, mse_y, loss_x_mse, loss_y_mse, loss_postrior_z)
+                loss_contents = '''Epoch [%d, %.1f]: mse_y [%.4f], corr [%.4f], loss_x_mse [%.4f], loss_y_mse [%.4f], loss_postrior_z [%.4f]''' \
+                %(epoch, time.time()-t0, mse_y, corr, loss_x_mse, loss_y_mse, loss_postrior_z)
                 if verbose:
                     print(loss_contents)
                 if epoch >= startoff and mse_y < best_loss:
@@ -1160,8 +1183,8 @@ class BayesPredGM(object):
 
                 self.history_z.append(copy.copy(self.data_z))
                 np.savez('%s/data_at_%d.npz'%(self.save_dir, epoch), data_z=self.data_z.numpy(),
-                        data_v_rec=self.g_net(self.data_z).numpy(),
-                        y_pred = mu_y,
+                        data_x_rec=self.gx_net(self.data_z).numpy(),
+                        data_y_rec=self.gy_net(self.data_z).numpy(),
                         y_pred_all = y_pred_all)
                 import matplotlib.pyplot as plt
                 import matplotlib
@@ -1176,17 +1199,30 @@ class BayesPredGM(object):
                 plt.close()
         np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
 
-    def evaluate(self, data):
+    def evaluate(self, data, eps=1e-6):
+        from scipy.stats import pearsonr
+        """Evaluate the model on the test data and give estimation interval of P(Y|X)."""
         data_x_test, data_y_test = data
-        #P(Y|X)
-        data_pz_x = self.metropolis_hastings_sampler(data_x_test) #(n_keep, n, q)
-        #(n_keep, n, y_dim)
-        y_pred_all = np.array(list(map(self.g_net, data_pz_x)))[:,:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
-        #mu_y = np.mean(y_pred, axis=0)
-        posterior_mean_z = np.mean(data_pz_x, axis=0)
-        mu_y = self.g_net(posterior_mean_z)[:,self.params['x_dim']:(self.params['x_dim']+self.params['y_dim'])]
-        mse_y = np.mean((data_y_test-mu_y)**2)
-        return mu_y, y_pred_all, mse_y
+
+        #posterior samples of P(Z|X) with shape (n_keep, n_test, q)
+        data_pz_x = self.metropolis_hastings_sampler(data_x_test) 
+
+        #mean of P(Y|Z): shape (n_keep, n, y_dim)
+        gy_out = np.array(list(map(self.gy_net, data_pz_x)))
+        mu_y_all = gy_out[:,:,:self.params['y_dim']]
+
+        #sd of P(Y|Z): a constant or variable with shape (n_keep, n, 1)
+        if 'sigma_y' in self.params:
+            sigma_square_y = self.params['sigma_y']**2
+        else:
+            sigma_square_y = tf.nn.relu(gy_out[:,:,-1:])+eps
+
+        #sample Y with a normal distribution N(mu_y, sigma_y**2) with shape (n_keep, n, y_dim)
+        y_pred_all = np.random.normal(loc = mu_y_all, scale = np.sqrt(sigma_square_y))
+        y_pred_mean = np.mean(y_pred_all, axis=0)
+        mse_y = np.mean((data_y_test - y_pred_mean)**2)
+        corr = pearsonr(data_y_test[:,0], y_pred_mean[:,0])[0]
+        return y_pred_all, mse_y, corr
         
     def get_log_posterior(self, data_x, data_z, eps=1e-6):
         """
@@ -1196,12 +1232,12 @@ class BayesPredGM(object):
         return (np.ndarray): Log posterior with shape (n, ).
         """
         
-        mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+        mu_x = self.gx_net(data_z)[:,:self.params['x_dim']]
 
         if 'sigma_x' in self.params:
             sigma_square_x = self.params['sigma_x']**2
         else:
-            sigma_square_x = tf.nn.relu(self.g_net(data_z)[:,-2:-1])+eps
+            sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1:])+eps
 
         log_likelihood = -np.sum((data_x-mu_x) ** 2,axis=1)/(2 * sigma_square_x) - np.log(sigma_square_x)*self.params['x_dim']/2
         log_prior = -np.sum(data_z ** 2,axis=1)/2
@@ -1209,7 +1245,7 @@ class BayesPredGM(object):
         return log_posterior
 
 
-    def metropolis_hastings_sampler(self, data_x, q_sd = 1., burn_in = 5000, n_keep = 50):
+    def metropolis_hastings_sampler(self, data_x, q_sd = 1., burn_in = 500, n_keep = 5000):
         """
         Samples from the posterior distribution P(Z|X=x) using the Metropolis-Hastings algorithm.
 
