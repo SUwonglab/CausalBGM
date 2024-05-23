@@ -1053,15 +1053,16 @@ class BayesPredGM(object):
             if 'sigma_x' in self.params:
                 sigma_square_x = self.params['sigma_x']**2
             else:
-                sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1:])+eps
+                sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1])+eps
 
             #loss = -log(p(x|z))
             loss_mse = tf.reduce_mean((data_x - mu_x)**2)
-            loss_x = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
-                    tf.reduce_mean(tf.math.log(sigma_square_x))/2
+            loss_x = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
+                    self.params['x_dim'] * tf.math.log(sigma_square_x)/2
+            loss_x = tf.reduce_mean(loss_x)
 
         # Calculate the gradients for generator
-        gx_gradients = gen_tape_x.gradient(loss_mse, self.gx_net.trainable_variables)
+        gx_gradients = gen_tape_x.gradient(loss_x, self.gx_net.trainable_variables)
         
         # Apply the gradients to the optimizer
         self.gx_optimizer.apply_gradients(zip(gx_gradients, self.gx_net.trainable_variables))
@@ -1075,15 +1076,16 @@ class BayesPredGM(object):
             if 'sigma_y' in self.params:
                 sigma_square_y = self.params['sigma_y']**2
             else:
-                sigma_square_y = tf.nn.relu(self.gy_net(data_z)[:,-1:])+eps
+                sigma_square_y = tf.nn.relu(self.gy_net(data_z)[:,-1])+eps
 
             #loss = -log(p(y|z))
             loss_mse = tf.reduce_mean((data_y - mu_y)**2)
-            loss_y = tf.reduce_mean((data_y - mu_y)**2/(2*sigma_square_y)) + \
-                    tf.reduce_mean(tf.math.log(sigma_square_y))/2
+            loss_y = tf.reduce_sum((data_y - mu_y)**2, axis=1)/(2*sigma_square_y) + \
+                    self.params['y_dim'] * tf.math.log(sigma_square_y)/2
+            loss_y = tf.reduce_mean(loss_y)
 
         # Calculate the gradients for generator
-        gy_gradients = gen_tape_y.gradient(loss_mse, self.gy_net.trainable_variables)
+        gy_gradients = gen_tape_y.gradient(loss_y, self.gy_net.trainable_variables)
         
         # Apply the gradients to the optimizer
         self.gy_optimizer.apply_gradients(zip(gy_gradients, self.gy_net.trainable_variables))
@@ -1099,23 +1101,23 @@ class BayesPredGM(object):
             if 'sigma_x' in self.params:
                 sigma_square_x = self.params['sigma_x']**2
             else:
-                sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1:])+eps
+                sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1])+eps
 
             mu_y = self.gy_net(data_z)[:,:self.params['y_dim']]
             if 'sigma_y' in self.params:
                 sigma_square_y = self.params['sigma_y']**2
             else:
-                sigma_square_y = tf.nn.relu(self.gy_net(data_z)[:,-1:])+eps
+                sigma_square_y = tf.nn.relu(self.gy_net(data_z)[:,-1])+eps
             
-            loss_px_z = tf.reduce_mean((data_x - mu_x)**2/(2*sigma_square_x)) + \
-                    tf.reduce_mean(tf.math.log(sigma_square_x))/2
+            loss_px_z = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
+                    self.params['x_dim'] * tf.math.log(sigma_square_x)/2
 
-            loss_py_z = tf.reduce_mean((data_y - mu_y)**2/(2*sigma_square_y)) + \
-                    tf.reduce_mean(tf.math.log(sigma_square_y))/2
+            loss_py_z = tf.reduce_sum((data_y - mu_y)**2, axis=1)/(2*sigma_square_y) + \
+                    self.params['y_dim'] * tf.math.log(sigma_square_y)/2
 
-            loss_prior_z =  tf.reduce_mean(data_z**2)/2
-            loss_postrior_z = self.params['x_dim']*loss_px_z +self.params['y_dim']*loss_py_z + \
-                                self.params['z_dim']*loss_prior_z
+            loss_prior_z =  tf.reduce_sum(data_z**2, axis=1)/2
+            loss_postrior_z = tf.reduce_mean(loss_px_z) + \
+                                tf.reduce_mean(loss_py_z) + tf.reduce_mean(loss_prior_z)
 
             loss_postrior_z = loss_postrior_z/(self.params['x_dim']+self.params['y_dim'])
 
@@ -1237,8 +1239,7 @@ class BayesPredGM(object):
         if 'sigma_x' in self.params:
             sigma_square_x = self.params['sigma_x']**2
         else:
-            sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1:])+eps
-
+            sigma_square_x = tf.nn.relu(self.gx_net(data_z)[:,-1])+eps
         log_likelihood = -np.sum((data_x-mu_x) ** 2,axis=1)/(2 * sigma_square_x) - np.log(sigma_square_x)*self.params['x_dim']/2
         log_prior = -np.sum(data_z ** 2,axis=1)/2
         log_posterior = log_likelihood + log_prior
@@ -1272,7 +1273,6 @@ class BayesPredGM(object):
             proposed_log_posterior = self.get_log_posterior(data_x, proposed_state)
             current_log_posterior  = self.get_log_posterior(data_x, current_state)
             acceptance_ratio = np.exp(proposed_log_posterior-current_log_posterior)
-
             # Accept or reject the proposed state
             indices = np.random.rand(len(data_x)) < acceptance_ratio
             current_state[indices] = proposed_state[indices]
