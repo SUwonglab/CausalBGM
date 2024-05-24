@@ -998,7 +998,7 @@ class BayesPredGM(object):
                                         
         self.gx_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
         self.gy_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
-        self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr_z'], beta_1=0.9, beta_2=0.99)
+        self.posterior_optimizer = tf.keras.optimizers.Adam(params['lr_z'], beta_1=0.9, beta_2=0.99)
 
         self.initialize_nets()
         if self.timestamp is None:
@@ -1170,7 +1170,7 @@ class BayesPredGM(object):
                 self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
             
             if epoch % epochs_per_eval == 0:
-                y_pred_all, mse_y, corr = self.evaluate(data_test)
+                y_pred_all, sigma_square_y, mse_y, corr = self.evaluate(data_test)
                 self.history_loss.append(mse_y)
                 loss_contents = '''Epoch [%d, %.1f]: mse_y [%.4f], corr [%.4f], loss_x_mse [%.4f], loss_y_mse [%.4f], loss_postrior_z [%.4f]''' \
                 %(epoch, time.time()-t0, mse_y, corr, loss_x_mse, loss_y_mse, loss_postrior_z)
@@ -1187,6 +1187,7 @@ class BayesPredGM(object):
                 np.savez('%s/data_at_%d.npz'%(self.save_dir, epoch), data_z=self.data_z.numpy(),
                         data_x_rec=self.gx_net(self.data_z).numpy(),
                         data_y_rec=self.gy_net(self.data_z).numpy(),
+                        sigma_square_y = sigma_square_y,
                         y_pred_all = y_pred_all)
                 import matplotlib.pyplot as plt
                 import matplotlib
@@ -1224,7 +1225,7 @@ class BayesPredGM(object):
         y_pred_mean = np.mean(y_pred_all, axis=0)
         mse_y = np.mean((data_y_test - y_pred_mean)**2)
         corr = pearsonr(data_y_test[:,0], y_pred_mean[:,0])[0]
-        return y_pred_all, mse_y, corr
+        return y_pred_all, sigma_square_y, mse_y, corr
         
     def get_log_posterior(self, data_x, data_z, eps=1e-6):
         """
