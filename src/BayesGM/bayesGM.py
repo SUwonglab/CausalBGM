@@ -1294,3 +1294,330 @@ class BayesPredGM(object):
         else:
             print('Wrong saving format, please specify either .npy, .txt, or .csv')
             sys.exit()
+
+
+
+class BayesPredGM_Partition(object):
+    """ Bayesian Prediction with latent space partition
+    """
+    def __init__(self, params, timestamp=None, random_seed=None):
+        super(BayesPredGM_Partition, self).__init__()
+        self.params = params
+        self.timestamp = timestamp
+        if random_seed is not None:
+            tf.keras.utils.set_random_seed(random_seed)
+            os.environ['TF_DETERMINISTIC_OPS'] = '1'
+        self.gx_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][2],output_dim = params['x_dim']+1, 
+                                        model_name='gx_net', nb_units=params['gx_units'])
+
+        self.gy_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][1],output_dim = params['y_dim']+1, 
+                                        model_name='gy_net', nb_units=params['gy_units'])
+                                        
+        self.gx_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
+        self.gy_optimizer = tf.keras.optimizers.Adam(params['lr_theta'], beta_1=0.9, beta_2=0.99)
+        self.posterior_optimizer = tf.keras.optimizers.legacy.Adam(params['lr_z'], beta_1=0.9, beta_2=0.99)
+
+        self.initialize_nets()
+        if self.timestamp is None:
+            now = datetime.datetime.now(dateutil.tz.tzlocal())
+            self.timestamp = now.strftime('%Y%m%d_%H%M%S')
+        
+        self.checkpoint_path = "{}/checkpoints/{}/{}".format(
+            params['output_dir'], params['dataset'], self.timestamp)
+
+        if self.params['save_model'] and not os.path.exists(self.checkpoint_path):
+            os.makedirs(self.checkpoint_path)
+
+        self.save_dir = "{}/results/{}/{}".format(
+            params['output_dir'], params['dataset'], self.timestamp)
+
+        if self.params['save_res'] and not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)   
+
+        self.ckpt = tf.train.Checkpoint(gx_net = self.gx_net,
+                                    gy_net = self.gy_net,
+                                    gx_optimizer = self.gx_optimizer,
+                                    gy_optimizer = self.gy_optimizer,
+                                    posterior_optimizer = self.posterior_optimizer)
+        
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=3)                 
+
+        if self.ckpt_manager.latest_checkpoint:
+            self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
+            print ('Latest checkpoint restored!!') 
+
+    def get_config(self):
+        """Get the parameters BayesGM model."""
+
+        return {
+                "params": self.params,
+        }
+
+    def initialize_nets(self, print_summary = False):
+        """Initialize all the networks in BayesGM."""
+
+        self.gx_net(np.zeros((1, self.params['z_dims'][0] + self.params['z_dims'][2])))
+        self.gy_net(np.zeros((1, self.params['z_dims'][0] + self.params['z_dims'][1])))
+        if print_summary:
+            print(self.gx_net.summary())
+            print(self.gy_net.summary())
+
+    #update network for x
+    @tf.function
+    def update_gx_net(self, data_z, data_x, eps=1e-6):
+        with tf.GradientTape(persistent=True) as gen_tape_x:
+            data_z0 = data_z[:,:self.params['z_dims'][0]]
+            data_z2 = data_z[:,-self.params['z_dims'][-1]:]
+            mu_x = self.gx_net(tf.concat([data_z0, data_z2], axis=-1))[:,:self.params['x_dim']]
+            if 'sigma_x' in self.params:
+                sigma_square_x = self.params['sigma_x']**2
+            else:
+                sigma_square_x = tf.nn.relu(self.gx_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+
+            #loss = -log(p(x|z))
+            loss_mse = tf.reduce_mean((data_x - mu_x)**2)
+            loss_x = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
+                    self.params['x_dim'] * tf.math.log(sigma_square_x)/2
+            loss_x = tf.reduce_mean(loss_x)
+
+        # Calculate the gradients for generator
+        gx_gradients = gen_tape_x.gradient(loss_x, self.gx_net.trainable_variables)
+        
+        # Apply the gradients to the optimizer
+        self.gx_optimizer.apply_gradients(zip(gx_gradients, self.gx_net.trainable_variables))
+        return loss_x, loss_mse
+
+    #update network for y
+    @tf.function
+    def update_gy_net(self, data_z, data_y, eps=1e-6):
+        with tf.GradientTape(persistent=True) as gen_tape_y:
+            data_z0 = data_z[:,:self.params['z_dims'][0]]
+            data_z1 = data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
+            mu_y = self.gy_net(tf.concat([data_z0, data_z1], axis=-1))[:,:self.params['y_dim']]
+            if 'sigma_y' in self.params:
+                sigma_square_y = self.params['sigma_y']**2
+            else:
+                sigma_square_y = tf.nn.relu(self.gy_net(tf.concat([data_z0, data_z1], axis=-1))[:,-1])+eps
+
+            #loss = -log(p(y|z))
+            loss_mse = tf.reduce_mean((data_y - mu_y)**2)
+            loss_y = tf.reduce_sum((data_y - mu_y)**2, axis=1)/(2*sigma_square_y) + \
+                    self.params['y_dim'] * tf.math.log(sigma_square_y)/2
+            loss_y = tf.reduce_mean(loss_y)
+
+        # Calculate the gradients for generator
+        gy_gradients = gen_tape_y.gradient(loss_y, self.gy_net.trainable_variables)
+        
+        # Apply the gradients to the optimizer
+        self.gy_optimizer.apply_gradients(zip(gy_gradients, self.gy_net.trainable_variables))
+        return loss_y, loss_mse
+
+    # update posterior of latent variables Z
+    #@tf.function
+    def update_latent_variable_sgd(self, data_z, data_x, data_y, eps=1e-6):
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(data_z)
+            data_z0 = data_z[:,:self.params['z_dims'][0]]
+            data_z1 = data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
+            data_z2 = data_z[:,-self.params['z_dims'][-1]:]
+            mu_x = self.gx_net(tf.concat([data_z0, data_z2], axis=-1))[:,:self.params['x_dim']]
+            if 'sigma_x' in self.params:
+                sigma_square_x = self.params['sigma_x']**2
+            else:
+                sigma_square_x = tf.nn.relu(self.gx_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+
+            mu_y = self.gy_net(tf.concat([data_z0, data_z1], axis=-1))[:,:self.params['y_dim']]
+            if 'sigma_y' in self.params:
+                sigma_square_y = self.params['sigma_y']**2
+            else:
+                sigma_square_y = tf.nn.relu(self.gy_net(tf.concat([data_z0, data_z1], axis=-1))[:,-1])+eps
+            
+            loss_px_z = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
+                    self.params['x_dim'] * tf.math.log(sigma_square_x)/2
+
+            loss_py_z = tf.reduce_sum((data_y - mu_y)**2, axis=1)/(2*sigma_square_y) + \
+                    self.params['y_dim'] * tf.math.log(sigma_square_y)/2
+
+            loss_prior_z =  tf.reduce_sum(data_z**2, axis=1)/2
+            loss_postrior_z = tf.reduce_mean(loss_px_z) + \
+                                tf.reduce_mean(loss_py_z) + tf.reduce_mean(loss_prior_z)
+
+            loss_postrior_z = loss_postrior_z/(self.params['x_dim']+self.params['y_dim'])
+
+        # self.posterior_optimizer.build(data_z)
+        # calculate the gradients for generators and discriminators
+        posterior_gradients = tape.gradient(loss_postrior_z, [data_z])
+        # apply the gradients to the optimizer
+        self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
+        return loss_postrior_z, data_z
+    
+    def train_epoch(self, data_train, data_test, data_z_init=None,
+            batch_size=32, epochs=100, epochs_per_eval=5, startoff=0,
+            verbose=1, save_format='txt'):
+        
+        if self.params['save_res']:
+            f_params = open('{}/params.txt'.format(self.save_dir),'w')
+            f_params.write(str(self.params))
+            f_params.close()
+
+        t0 = time.time()
+        self.history_z = []
+        self.history_loss = []
+        self.data_x, self.data_y = data_train
+
+        assert len(self.data_x) == len(self.data_y), "X and Y should be the same length"
+
+        if data_z_init is None:
+            data_z_init = np.random.normal(0, 1, size = (len(self.data_x), sum(self.params['z_dims']))).astype('float32')
+
+        self.data_z = tf.Variable(data_z_init, name="Latent Variable")
+        self.data_z_init = tf.identity(self.data_z)
+        best_loss = np.inf
+        for epoch in range(epochs+1):
+            sample_idx = np.random.choice(len(self.data_x), len(self.data_x), replace=False)
+            for i in range(0,len(self.data_x),batch_size):
+                # get batch data
+                batch_idx = sample_idx[i:i+batch_size]
+                batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z')
+                batch_x = self.data_x[batch_idx]
+                batch_y = self.data_y[batch_idx]
+
+                # update model parameters of G_x with SGD
+                loss_x, loss_x_mse = self.update_gx_net(batch_z, batch_x)
+
+                # update model parameters of G_y with SGD
+                loss_y, loss_y_mse = self.update_gy_net(batch_z, batch_y)
+
+                # update Z by maximizing a posterior or posterior mean
+                loss_postrior_z, batch_z= self.update_latent_variable_sgd(batch_z, batch_x, batch_y)
+                self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
+            
+            if epoch % epochs_per_eval == 0:
+                y_pred_all, sigma_square_y, mse_y, corr = self.evaluate(data_test)
+                self.history_loss.append(mse_y)
+                loss_contents = '''Epoch [%d, %.1f]: mse_y [%.4f], corr [%.4f], loss_x_mse [%.4f], loss_y_mse [%.4f], loss_postrior_z [%.4f]''' \
+                %(epoch, time.time()-t0, mse_y, corr, loss_x_mse, loss_y_mse, loss_postrior_z)
+                if verbose:
+                    print(loss_contents)
+                if epoch >= startoff and mse_y < best_loss:
+                    best_loss = mse_y
+                    self.best_epoch = epoch
+                    if self.params['save_model']:
+                        ckpt_save_path = self.ckpt_manager.save(epoch)
+                        #print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
+
+                self.history_z.append(copy.copy(self.data_z))
+                np.savez('%s/data_at_%d.npz'%(self.save_dir, epoch), data_z=self.data_z.numpy(),
+                        sigma_square_y = sigma_square_y,
+                        y_pred_all = y_pred_all)
+                import matplotlib.pyplot as plt
+                import matplotlib
+                matplotlib.use('Agg')
+                plt.violinplot(self.data_z.numpy())
+                plt.title('Epoch %d'%(epoch))
+                plt.savefig('%s/violinplot_%d.png'%(self.save_dir, epoch))
+                plt.close()
+                plt.scatter(self.data_z.numpy()[:,0],self.data_z.numpy()[:,1])
+                plt.title('Epoch %d'%(epoch))
+                plt.savefig('%s/scatter_%d.png'%(self.save_dir, epoch))
+                plt.close()
+        np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
+
+    def evaluate(self, data, eps=1e-6):
+        from scipy.stats import pearsonr
+        """Evaluate the model on the test data and give estimation interval of P(Y|X)."""
+        data_x_test, data_y_test = data
+
+        #posterior samples of P(Z|X) with shape (n_keep, n_test, q)
+        data_pz_x = self.metropolis_hastings_sampler(data_x_test) 
+
+        #extract the components of Z for Y
+        data_z0 = data_pz_x[:,:,:self.params['z_dims'][0]]
+        data_z1 = data_pz_x[:,:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
+
+        #mean of P(Y|Z): shape (n_keep, n, y_dim)
+        gy_out = np.array(list(map(self.gy_net, tf.concat([data_z0, data_z1], axis=-1))))
+        mu_y_all = gy_out[:,:,:self.params['y_dim']]
+
+        #sd of P(Y|Z): a constant or variable with shape (n_keep, n, 1)
+        if 'sigma_y' in self.params:
+            sigma_square_y = self.params['sigma_y']**2
+        else:
+            sigma_square_y = tf.nn.relu(gy_out[:,:,-1:])+eps
+
+        #sample Y with a normal distribution N(mu_y, sigma_y**2) with shape (n_keep, n, y_dim)
+        y_pred_all = np.random.normal(loc = mu_y_all, scale = np.sqrt(sigma_square_y))
+        y_pred_mean = np.mean(y_pred_all, axis=0)
+        mse_y = np.mean((data_y_test - y_pred_mean)**2)
+        corr = pearsonr(data_y_test[:,0], y_pred_mean[:,0])[0]
+        return y_pred_all, sigma_square_y, mse_y, corr
+        
+    def get_log_posterior(self, data_x, data_z, eps=1e-6):
+        """
+        Calculate log posterior.
+        data_x: (np.ndarray): Input data with shape (n, p), where p is the dimension of X.
+        data_z: (np.ndarray): Input data with shape (n, q), where q is the dimension of Z.
+        return (np.ndarray): Log posterior with shape (n, ).
+        """
+        data_z0 = data_z[:,:self.params['z_dims'][0]]
+        data_z2 = data_z[:,-self.params['z_dims'][-1]:]
+            
+        mu_x = self.gx_net(tf.concat([data_z0, data_z2], axis=-1))[:,:self.params['x_dim']]
+
+        if 'sigma_x' in self.params:
+            sigma_square_x = self.params['sigma_x']**2
+        else:
+            sigma_square_x = tf.nn.relu(self.gx_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+        log_likelihood = -np.sum((data_x-mu_x) ** 2,axis=1)/(2 * sigma_square_x) - np.log(sigma_square_x)*self.params['x_dim']/2
+        log_prior = -np.sum(data_z ** 2,axis=1)/2
+        log_posterior = log_likelihood + log_prior
+        return log_posterior
+
+
+    def metropolis_hastings_sampler(self, data_x, q_sd = 1., burn_in = 500, n_keep = 5000):
+        """
+        Samples from the posterior distribution P(Z|X=x) using the Metropolis-Hastings algorithm.
+
+        Args:
+            x (np.ndarray): Input data with shape (n, p), where p is the dimension of X.
+            burn_in (int): Number of samples for burn-in.
+            n_keep (int): Number of samples retained after burn-in.
+
+        Returns:
+            np.ndarray: Posterior samples with shape (n_keep, n, q), where q is the dimension of Z.
+        """
+        # Initialize the state of n chains
+        current_state = np.random.normal(0, 1, size = (len(data_x), sum(self.params['z_dims']))).astype('float32')
+
+        # Initialize the list to store the samples
+        samples = []
+        counter = 0
+        # Run the Metropolis-Hastings algorithm
+        while len(samples) < n_keep:
+            # Propose a new state by sampling from a multivariate normal distribution
+            proposed_state = current_state + np.random.normal(0, q_sd, size = (len(data_x), sum(self.params['z_dims']))).astype('float32')
+
+            # Compute the acceptance ratio
+            proposed_log_posterior = self.get_log_posterior(data_x, proposed_state)
+            current_log_posterior  = self.get_log_posterior(data_x, current_state)
+            acceptance_ratio = np.exp(proposed_log_posterior-current_log_posterior)
+            # Accept or reject the proposed state
+            indices = np.random.rand(len(data_x)) < acceptance_ratio
+            current_state[indices] = proposed_state[indices]
+
+            # Append the current state to the list of samples
+            if counter >= burn_in:
+                samples.append(current_state.copy())
+            
+            counter += 1
+        return np.array(samples)
+
+    def save(self, fname, data):
+        """Save the data to the specified path."""
+        if fname[-3:] == 'npy':
+            np.save(fname, data)
+        elif fname[-3:] == 'txt' or 'csv':
+            np.savetxt(fname, data, fmt='%.6f')
+        else:
+            print('Wrong saving format, please specify either .npy, .txt, or .csv')
+            sys.exit()

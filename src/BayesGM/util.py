@@ -71,6 +71,53 @@ def make_blobs(n_samples=100, n_features=2, centers=2, cluster_std=1.0, random_s
     X, y = datasets.make_blobs(n_samples=n_samples, n_features=n_features, centers=centers, cluster_std=cluster_std)
     return X, y
 
+def make_sim_data(n_samples=2000, x_dim=5, y_dim=1, z_dim=5, w_dim=4, order='linear', random_state=None):
+    """Generate simulation data for regression.
+    Parameters
+    ----------
+    n_samples : int, default=2000
+        The total number of points.
+
+    x_dim : int, default=5
+        The number of features for X.
+
+    y_dim : int, default=1
+        The number of features for Y.
+
+    z_dim : int, default=5
+        The number of features for Z.
+
+    w_dim : int, default=4
+        The number of features for W.
+
+    order : int, default=4
+        The number of features for W.
+
+    random_state : int, RandomState instance or None, default=None.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, x_dim)
+        The predictor variable samples.
+
+    y : ndarray of shape (n_samples, y_dim)
+        The response variable samples.
+    """
+    np.random.seed(random_state)
+    assert z_dim >= w_dim, "The dimension of Z must be greater than or equal to the dimension of W."
+    Z = np.random.normal(size=(n_samples, z_dim))
+    X = np.random.normal(loc=Z, scale=0.5).astype('float32')
+    W = np.random.uniform(low=-1, high=1, size=(w_dim, y_dim))
+    if order == 'linear':
+        center = np.dot(Z[:,:w_dim], W)
+    elif order == 'quadratic':
+        center = np.dot(Z[:,:w_dim] ** 2, W)
+    else:
+        print('The order of the model is not recognized.')
+        sys.exit()
+    y = np.random.normal(loc=center, scale=0.5).astype('float32')
+    return X, y
+
 def Dataset_selector(name):
     if name == 'Semi_acic':
         return Semi_acic_sampler

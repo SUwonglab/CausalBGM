@@ -1,6 +1,7 @@
 import yaml
 import argparse
-from BayesGM import BayesCausalGM, BayesPredGM, Sim_Hirano_Imbens_sampler, Semi_acic_sampler
+from BayesGM import BayesCausalGM, BayesPredGM, BayesPredGM_Partition, Sim_Hirano_Imbens_sampler, Semi_acic_sampler
+from BayesGM import make_swiss_roll, make_blobs, make_sim_data
 import numpy as np 
 
 if __name__=="__main__":
@@ -57,21 +58,21 @@ if __name__=="__main__":
     # model.train_epoch(data_obs=[x,y,v], epochs=200, epochs_per_eval=10, pretrain_iter=20000, batches_per_eval=500)
 
     # Prediction interval settings
-    from sklearn.datasets import make_regression
-    X, y = make_regression(n_samples=2000, n_features=5, n_targets=1, noise=1, random_state=123)
-    y = np.expm1((y + abs(y.min())) / 200)
-    y = np.log1p(y)
-    y = y.reshape(-1,1)
-    X = X.astype('float32')
-    y = y.astype('float32')
+    # from sklearn.datasets import make_regression
+    # X, y = make_regression(n_samples=2000, n_features=5, n_targets=1, noise=1, random_state=123)
+    # y = np.expm1((y + abs(y.min())) / 200)
+    # y = np.log1p(y)
+    # y = y.reshape(-1,1)
+    # X = X.astype('float32')
+    # y = y.astype('float32')
+    # Simulation regression data
+    X, y = make_sim_data(random_state=1)
     from sklearn.model_selection import train_test_split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
-    model = BayesPredGM(params = params, random_seed = 123)
+    #model = BayesPredGM(params = params, random_seed = 123)
+    model = BayesPredGM_Partition(params = params, random_seed = 123)
     model.train_epoch(data_train = [X_train,y_train], 
                       data_test = [X_test,y_test],
-                      epochs=100,
-                      epochs_per_eval=5)
+                      epochs=200,
+                      epochs_per_eval=10)
 
-
-    
-    
