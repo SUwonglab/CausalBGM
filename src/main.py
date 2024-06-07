@@ -73,6 +73,6 @@ if __name__=="__main__":
     model = BayesPredGM_Partition(params = params, random_seed = 123)
     model.train_epoch(data_train = [X_train,y_train], 
                       data_test = [X_test,y_test],
-                      epochs=200,
-                      epochs_per_eval=10)
+                      epochs=2,
+                      epochs_per_eval=1)
 

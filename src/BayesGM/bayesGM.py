@@ -1475,6 +1475,7 @@ class BayesPredGM_Partition(object):
         best_loss = np.inf
         for epoch in range(epochs+1):
             sample_idx = np.random.choice(len(self.data_x), len(self.data_x), replace=False)
+            loss_total = []
             for i in range(0,len(self.data_x),batch_size):
                 # get batch data
                 batch_idx = sample_idx[i:i+batch_size]
@@ -1491,12 +1492,13 @@ class BayesPredGM_Partition(object):
                 # update Z by maximizing a posterior or posterior mean
                 loss_postrior_z, batch_z= self.update_latent_variable_sgd(batch_z, batch_x, batch_y)
                 self.data_z = tf.compat.v1.scatter_update(self.data_z, batch_idx, batch_z)
-            
+                loss_total.append([loss_x_mse, loss_y_mse, loss_postrior_z])
             if epoch % epochs_per_eval == 0:
+                loss_aveg = np.mean(loss_total, axis=0)
                 y_pred_all, sigma_square_y, mse_y, corr = self.evaluate(data_test)
-                self.history_loss.append(mse_y)
-                loss_contents = '''Epoch [%d, %.1f]: mse_y [%.4f], corr [%.4f], loss_x_mse [%.4f], loss_y_mse [%.4f], loss_postrior_z [%.4f]''' \
-                %(epoch, time.time()-t0, mse_y, corr, loss_x_mse, loss_y_mse, loss_postrior_z)
+                self.history_loss.append([loss_aveg[0], loss_aveg[1], loss_aveg[2], mse_y, corr])
+                loss_contents = '''Epoch [%d, %.1f]: x_mse [%.4f], y_mse [%.4f], postrior_z [%.4f], test_mse_y [%.4f], corr [%.4f]''' \
+                %(epoch, time.time()-t0, loss_aveg[0], loss_aveg[1], loss_aveg[2], mse_y, corr)
                 if verbose:
                     print(loss_contents)
                 if epoch >= startoff and mse_y < best_loss:
@@ -1521,7 +1523,7 @@ class BayesPredGM_Partition(object):
                 plt.title('Epoch %d'%(epoch))
                 plt.savefig('%s/scatter_%d.png'%(self.save_dir, epoch))
                 plt.close()
-        np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
+        self.save('{}/history_loss.txt'.format(self.save_dir), np.array(self.history_loss))
 
     def evaluate(self, data, eps=1e-6):
         from scipy.stats import pearsonr
