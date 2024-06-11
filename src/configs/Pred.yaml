@@ -8,4 +8,4 @@ lr_z: 0.1
 gx_units: [32,16,8,6]
 gy_units: [32,16,8,4]
 save_res: True
-save_model: True
+save_model: False
