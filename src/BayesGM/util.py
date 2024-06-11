@@ -71,7 +71,7 @@ def make_blobs(n_samples=100, n_features=2, centers=2, cluster_std=1.0, random_s
     X, y = datasets.make_blobs(n_samples=n_samples, n_features=n_features, centers=centers, cluster_std=cluster_std)
     return X, y
 
-def make_sim_data(n_samples=2000, x_dim=5, y_dim=1, z_dim=5, w_dim=4, order='linear', random_state=None):
+def make_sim_data(n_samples=2000, x_dim=5, y_dim=1, z_dim=5, w_dim=5, order='linear', random_state=None):
     """Generate simulation data for regression.
     Parameters
     ----------
