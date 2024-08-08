@@ -2,10 +2,8 @@ dataset: Semi_acic
 output_dir: '.'
 z_dims: [3,6,3,6]
 v_dim: 177
-sigma_v: 0.5
-sigma_y: 0.5
-lr_theta: 0.005
-lr_z: 0.005
+lr_theta: 0.0001
+lr_z: 0.0001
 g_units: [64,64,64,64,64]
 e_units: [64,64,64,64,64]
 f_units: [64,32,8]
@@ -13,7 +11,7 @@ h_units: [64,32,8]
 save_res: True
 save_model: True
 binary_treatment: True
-pretrain: True
+pretrain: False
 lr: 0.0002
 alpha: 1
 beta: 1
