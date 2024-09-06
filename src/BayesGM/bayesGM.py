@@ -557,7 +557,7 @@ class BayesCausalGM(object):
         self.e_net = BaseFullyConnectedNet(input_dim=params['v_dim'],output_dim = sum(params['z_dims']), 
                                         model_name='e_net', nb_units=params['e_units'])
         self.f_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][1]+1,
-                                        output_dim = 1, model_name='f_net', nb_units=params['f_units'])
+                                        output_dim = 2, model_name='f_net', nb_units=params['f_units'])
         self.h_net = BaseFullyConnectedNet(input_dim=params['z_dims'][0]+params['z_dims'][2],
                                         output_dim = 2, model_name='h_net', nb_units=params['h_units'])
         self.dz_net = Discriminator(input_dim=sum(params['z_dims']),model_name='dz_net',
@@ -602,7 +602,7 @@ class BayesCausalGM(object):
                                     h_optimizer = self.h_optimizer,
                                     posterior_optimizer = self.posterior_optimizer)
         
-        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=3)                 
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=5)                 
 
         if self.ckpt_manager.latest_checkpoint:
             self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
@@ -634,7 +634,8 @@ class BayesCausalGM(object):
             if 'sigma_v' in self.params:
                 sigma_square_v = self.params['sigma_v']**2
             else:
-                sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1])+eps
+                #sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1])+eps
+                sigma_square_v = tf.nn.softplus(self.g_net(data_z)[:,-1])
             #loss = -log(p(x|z))
             loss_mse = tf.reduce_mean((data_v - mu_v)**2)
             loss_v = tf.reduce_sum((data_v - mu_v)**2, axis=1)/(2*sigma_square_v) + \
@@ -664,7 +665,8 @@ class BayesCausalGM(object):
                 if 'sigma_x' in self.params:
                     sigma_square_x = self.params['sigma_x']**2
                 else:
-                    sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+                    #sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+                    sigma_square_x = tf.nn.softplus(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])
                 #loss = -log(p(x|z))
                 loss = tf.reduce_mean((data_x - mu_x)**2)
                 loss_x = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
@@ -688,7 +690,8 @@ class BayesCausalGM(object):
             if 'sigma_y' in self.params:
                 sigma_square_y = self.params['sigma_y']**2
             else:
-                sigma_square_y = tf.nn.relu(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])+eps
+                #sigma_square_y = tf.nn.relu(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])+eps
+                sigma_square_y = tf.nn.softplus(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])
             #loss = -log(p(y|z,x))
             loss_mse = tf.reduce_mean((data_y - mu_y)**2)
             loss_y = tf.reduce_sum((data_y - mu_y)**2, axis=1)/(2*sigma_square_y) + \
@@ -711,30 +714,27 @@ class BayesCausalGM(object):
             data_z1 = data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
             data_z2 = data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
             data_z3 = data_z[:-self.params['z_dims'][3]:]
-
+            
+            # logp(v|z) for covariate model
             mu_v = self.g_net(data_z)[:,:self.params['v_dim']]
             if 'sigma_v' in self.params:
                 sigma_square_v = self.params['sigma_v']**2
             else:
-                sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1])+eps
-
-            mu_x = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
-            if not self.params['binary_treatment']:
-                if 'sigma_x' in self.params:
-                    sigma_square_x = self.params['sigma_x']**2
-                else:
-                    sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
-
-            mu_y = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
-            if 'sigma_y' in self.params:
-                sigma_square_y = self.params['sigma_y']**2
-            else:
-                sigma_square_y = tf.nn.relu(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])+eps
-
+                #sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1])+eps
+                sigma_square_v = tf.nn.softplus(self.g_net(data_z)[:,-1])
+                
             loss_pv_z = tf.reduce_sum((data_v - mu_v)**2, axis=1)/(2*sigma_square_v) + \
                     self.params['v_dim'] * tf.math.log(sigma_square_v)/2
             loss_pv_z = tf.reduce_mean(loss_pv_z)
             
+            # log(x|z) for treatment model
+            mu_x = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
+            if 'sigma_x' in self.params:
+                sigma_square_x = self.params['sigma_x']**2
+            else:
+                #sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+                sigma_square_x = tf.nn.softplus(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])
+
             if self.params['binary_treatment']:
                 loss_px_z = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=data_x, 
                                                        logits=mu_x))
@@ -742,7 +742,15 @@ class BayesCausalGM(object):
             else:
                 loss_px_z = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
                         tf.math.log(sigma_square_x)/2
-                loss_px_z = tf.reduce_mean(loss_pv_z)
+                loss_px_z = tf.reduce_mean(loss_px_z)
+                
+            # log(y|z,x) for outcome model
+            mu_y = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
+            if 'sigma_y' in self.params:
+                sigma_square_y = self.params['sigma_y']**2
+            else:
+                #sigma_square_y = tf.nn.relu(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])+eps
+                sigma_square_y = tf.nn.softplus(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])
 
             loss_py_zx = tf.reduce_sum((data_y - mu_y)**2, axis=1)/(2*sigma_square_y) + \
                     tf.math.log(sigma_square_y)/2
@@ -752,7 +760,6 @@ class BayesCausalGM(object):
             loss_prior_z = tf.reduce_mean(loss_prior_z)
 
             loss_postrior_z = loss_pv_z + loss_px_z + loss_py_zx + loss_prior_z
-
             #loss_postrior_z = loss_postrior_z/self.params['v_dim']
 
         # self.posterior_optimizer.build(data_z)
@@ -762,7 +769,7 @@ class BayesCausalGM(object):
         self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
         return loss_postrior_z, data_z
     
-#################################### Pretrain #############################################
+#################################### Pretrain ###########################################
     @tf.function
     def train_disc_step(self, data_z, data_v):
         epsilon_z = tf.random.uniform([],minval=0., maxval=1.)
@@ -793,7 +800,9 @@ class BayesCausalGM(object):
     @tf.function
     def train_gen_step(self, data_z, data_v, data_x, data_y):
         with tf.GradientTape(persistent=True) as gen_tape:
-            data_v_ = self.g_net(data_z)
+            sigma_square_loss = 0
+            data_v_ = self.g_net(data_z)[:,:self.params['v_dim']]
+            sigma_square_loss += tf.reduce_mean(tf.square(self.g_net(data_z)[:,-1]))
             data_z_ = self.e_net(data_v)
             
             data_z0 = data_z_[:,:self.params['z_dims'][0]]
@@ -801,7 +810,7 @@ class BayesCausalGM(object):
             data_z2 = data_z_[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
 
             data_z__= self.e_net(data_v_)
-            data_v__ = self.g_net(data_z_)
+            data_v__ = self.g_net(data_z_)[:,:self.params['v_dim']]
             
             data_dz_ = self.dz_net(data_z_)
             
@@ -810,15 +819,19 @@ class BayesCausalGM(object):
             
             e_loss_adv = -tf.reduce_mean(data_dz_)
 
-            data_y_ = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))
-            data_x_ = self.h_net(tf.concat([data_z0, data_z2], axis=-1))
+            data_y_ = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
+            sigma_square_loss += tf.reduce_mean(
+                tf.square(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1]))
+            data_x_ = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
+            sigma_square_loss += tf.reduce_mean(
+                tf.square(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1]))
 
             if self.params['binary_treatment']:
                 data_x_ = tf.sigmoid(data_x_)
             l2_loss_x = tf.reduce_mean((data_x_ - data_x)**2)
             l2_loss_y = tf.reduce_mean((data_y_ - data_y)**2)
             g_e_loss = e_loss_adv+self.params['alpha']*(l2_loss_v + self.params['use_z_rec']*l2_loss_z) \
-                        + self.params['beta']*(l2_loss_x+l2_loss_y)
+                        + self.params['beta']*(l2_loss_x+l2_loss_y) + 0.001 * sigma_square_loss
 
         # Calculate the gradients for generators and discriminators
         g_e_gradients = gen_tape.gradient(g_e_loss, self.g_net.trainable_variables+self.e_net.trainable_variables+\
@@ -912,8 +925,7 @@ class BayesCausalGM(object):
                 if verbose:
                     print(loss_contents)
                 causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage = 'train')
-                causal_pre_v2, mse_x_v2, mse_y_v2, mse_v_v2 = self.predict(data = data_obs)
-                self.history_loss.append([mse_x, mse_y, mse_v, mse_x_v2, mse_y_v2, mse_v_v2])
+                self.history_loss.append([mse_x, mse_y, mse_v])
                 if epoch >= startoff and mse_y < best_loss:
                     best_loss = mse_y
                     self.best_causal_pre = causal_pre
@@ -923,7 +935,6 @@ class BayesCausalGM(object):
                         #print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
                 if self.params['save_res']:
                     self.save('{}/causal_pre_at_{}.{}'.format(self.save_dir, epoch, save_format), causal_pre)
-                    np.save('%s/causal_pre_v2_at_%s.npy'%(self.save_dir, epoch),causal_pre_v2)
                     
                 self.history_z.append(copy.copy(self.data_z))
                 data_z0 = self.data_z[:,:self.params['z_dims'][0]]
@@ -933,17 +944,11 @@ class BayesCausalGM(object):
                         data_x_rec=self.h_net(tf.concat([data_z0, data_z2], axis=-1)).numpy(),
                         data_y_rec=self.f_net(tf.concat([data_z0, data_z1, self.data_x], axis=-1)).numpy(),
                         data_v_rec=self.g_net(self.data_z).numpy())
-                import matplotlib.pyplot as plt
-                import matplotlib
-                matplotlib.use('Agg')
-                plt.violinplot(self.data_z.numpy())
-                plt.title('Epoch %d'%(epoch))
-                plt.savefig('%s/violinplot_%d.png'%(self.save_dir, epoch))
-                plt.close()
-                plt.scatter(self.data_z.numpy()[:,0],self.data_z.numpy()[:,1])
-                plt.title('Epoch %d'%(epoch))
-                plt.savefig('%s/scatter_%d.png'%(self.save_dir, epoch))
-                plt.close()
+
+            if epoch in np.linspace(0, epochs, 5):
+                causal_pre_v2 = self.predict(data = data_obs)
+                np.save('%s/causal_pre_v2_at_%s.npy'%(self.save_dir, epoch), causal_pre_v2)
+        
         np.save('%s/history_loss.npy'%(self.save_dir),np.array(self.history_loss))
 
         if self.params['save_res']:
@@ -960,8 +965,8 @@ class BayesCausalGM(object):
         data_z1 = self.data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
         data_z2 = self.data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
         data_v_pred = self.g_net(self.data_z)[:,:self.params['v_dim']]
-        data_y_pred = self.f_net(tf.concat([data_z0, data_z1, self.data_x], axis=-1))
-        data_x_pred = self.h_net(tf.concat([data_z0, data_z2], axis=-1))
+        data_y_pred = self.f_net(tf.concat([data_z0, data_z1, self.data_x], axis=-1))[:,:1]
+        data_x_pred = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
         if self.params['binary_treatment']:
             data_x_pred = tf.sigmoid(data_x_pred)
         mse_v = np.mean((self.data_v-data_v_pred)**2)
@@ -969,8 +974,8 @@ class BayesCausalGM(object):
         mse_y = np.mean((self.data_y-data_y_pred)**2)
         if self.params['binary_treatment']:
             #individual treatment effect (ITE) && average treatment effect (ATE)
-            y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(self.data_x),1))], axis=-1))
-            y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(self.data_x),1))], axis=-1))
+            y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(self.data_x),1))], axis=-1))[:,:1]
+            y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(self.data_x),1))], axis=-1))[:,:1]
             ite_pre = y_pred_pos-y_pred_neg
             return ite_pre, mse_x, mse_y, mse_v
         else:
@@ -978,11 +983,11 @@ class BayesCausalGM(object):
             dose_response = []
             for x in np.linspace(self.params['x_min'], self.params['x_max'], nb_intervals):
                 data_x = np.tile(x, (len(self.data_x), 1))
-                y_pred = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))
+                y_pred = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
                 dose_response.append(np.mean(y_pred))
             return np.array(dose_response), mse_x, mse_y, mse_v
 
-    def predict(self, data, nb_intervals=200, n_samples=5000):
+    def predict(self, data, nb_intervals=1, n_samples=3000, compute_mse=False):
         """Evaluate the model on the test data and give estimation interval.
         data: (np.ndarray): Input data with shape (n, p), where p is the dimension of X.
         nb_intervals: (int): Number of intervals for the dose response function.
@@ -997,37 +1002,39 @@ class BayesCausalGM(object):
         data_z0 = data_posterior_z[:,:,:self.params['z_dims'][0]]
         data_z1 = data_posterior_z[:,:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
         data_z2 = data_posterior_z[:,:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
-
-        data_v_pred = np.array(list(map(self.g_net, data_posterior_z)))[:,:,:self.params['v_dim']]
-        data_y_pred = np.array(list(map(self.f_net, 
-                                    tf.concat([data_z0, data_z1, np.tile(data[0], (n_samples, 1, 1))], axis=-1))))[:,:,:1]
-        data_x_pred = np.array(list(map(self.h_net,
-                                    tf.concat([data_z0, data_z2], axis=-1))))[:,:,:1]
-        if self.params['binary_treatment']:
-            data_x_pred = tf.sigmoid(data_x_pred)
-        print('test',data_v_pred.shape,data_y_pred.shape,data_x_pred.shape)
-        mse_x = np.mean((data[0]-np.mean(data_x_pred, axis=0))**2)
-        mse_y = np.mean((data[1]-np.mean(data_y_pred, axis=0))**2)
-        mse_v = np.mean((data[2]-np.mean(data_v_pred, axis=0))**2)
+        
+        if compute_mse:
+            data_v_pred = np.array(list(map(lambda x: self.g_net.predict(x, verbose=0), 
+                                            data_posterior_z)))[:,:,:self.params['v_dim']]
+            data_y_pred = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0), 
+                                        np.concatenate([data_z0, data_z1, np.tile(data[0], (n_samples, 1, 1))], axis=-1))))[:,:,:1]
+            data_x_pred = np.array(list(map(self.h_net,
+                                        np.concatenate([data_z0, data_z2], axis=-1))))[:,:,:1]
+            if self.params['binary_treatment']:
+                data_x_pred = tf.sigmoid(data_x_pred)
+            mse_x = np.mean((data[0]-np.mean(data_x_pred, axis=0))**2)
+            mse_y = np.mean((data[1]-np.mean(data_y_pred, axis=0))**2)
+            mse_v = np.mean((data[2]-np.mean(data_v_pred, axis=0))**2)
+            print('MSE for X, Y, V:',mse_x, mse_y, mse_v)
 
         if self.params['binary_treatment']:
             #individual treatment effect (ITE) && average treatment effect (ATE)
-            y_pred_pos_all = np.array(list(map(self.f_net, 
-                                    tf.concat([data_z0, data_z1, np.ones((n_samples,len(self.data_x),1))], axis=-1))))
-            y_pred_neg_all = np.array(list(map(self.f_net, 
-                                    tf.concat([data_z0, data_z1, np.zeros((n_samples,len(self.data_x),1))], axis=-1))))
+            y_pred_pos_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0),
+                                    np.concatenate([data_z0, data_z1, np.ones((n_samples,len(data[0]),1))], axis=-1))))[:,:,:1]
+            y_pred_neg_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0),
+                                    np.concatenate([data_z0, data_z1, np.zeros((n_samples,len(data[0]),1))], axis=-1))))[:,:,:1]
             ite_pred_all = y_pred_pos_all-y_pred_neg_all
 
-            return ite_pred_all, mse_x, mse_y, mse_v
+            return ite_pred_all
         else:
             #average dose response function (ADRF)
             dose_response = []
             for x in np.linspace(self.params['x_min'], self.params['x_max'], nb_intervals):
                 data_x = np.tile(x, (n_samples, len(data[0]), 1))
-                y_pred_all = np.array(list(map(self.f_net, 
-                                    tf.concat([data_z0, data_z1, data_x], axis=-1))))[:,:1]
+                y_pred_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0), 
+                                    tf.concat([data_z0, data_z1, data_x], axis=-1))))[:,:,:1]
                 dose_response.append(np.mean(y_pred_all, axis=1))
-            return np.array(dose_response), mse_x, mse_y, mse_v
+            return np.array(dose_response)
         
     def get_log_posterior(self, data_x, data_y, data_v, data_z, eps=1e-6):
         """
@@ -1046,20 +1053,22 @@ class BayesCausalGM(object):
         if 'sigma_v' in self.params:
             sigma_square_v = self.params['sigma_v']**2
         else:
-            sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1])+eps
+            #sigma_square_v = tf.nn.relu(self.g_net(data_z)[:,-1])+eps
+            sigma_square_v = tf.nn.softplus(self.g_net(data_z)[:,-1])
 
         mu_x = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
-        if not self.params['binary_treatment']:
-            if 'sigma_x' in self.params:
-                sigma_square_x = self.params['sigma_x']**2
-            else:
-                sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+        if 'sigma_x' in self.params:
+            sigma_square_x = self.params['sigma_x']**2
+        else:
+            #sigma_square_x = tf.nn.relu(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])+eps
+            sigma_square_x = tf.nn.softplus(self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,-1])
 
         mu_y = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
         if 'sigma_y' in self.params:
             sigma_square_y = self.params['sigma_y']**2
         else:
-            sigma_square_y = tf.nn.relu(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])+eps
+            #sigma_square_y = tf.nn.relu(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])+eps
+            sigma_square_y = tf.nn.softplus(self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,-1])
 
         loss_pv_z = tf.reduce_sum((data_v - mu_v)**2, axis=1)/(2*sigma_square_v) + \
                 self.params['v_dim'] * tf.math.log(sigma_square_v)/2
