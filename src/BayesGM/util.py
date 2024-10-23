@@ -249,7 +249,7 @@ class Sim_Sun_sampler(Base_sampler):
     >>> from CausalEGM import Sim_Sun_sampler
     >>> ds = Sim_Sun_sampler(batch_size=32, N=20000, v_dim=200, seed=0)
     """
-    def __init__(self, batch_size, N=20000, v_dim=200, seed=0):
+    def __init__(self, batch_size=32, N=20000, v_dim=200, seed=0):
         np.random.seed(seed)
         v = np.random.normal(0, 1, size=(N, v_dim))        
         x = np.random.normal(-2*(np.sin(2*v[:,0]))+ ((v[:,1])**2 - 1/3) + (v[:,2]-1/2) + np.cos(v[:,3]), 1)
@@ -279,7 +279,7 @@ class Sim_Colangelo_sampler(Base_sampler):
     def __init__(self, batch_size=32, N=20000, v_dim=100, seed=0,
                 rho=0.5, offset = [-1,0,1], d=1, a=3, b=0.75):
         np.random.seed(seed)
-        k = np.array([rho*np.ones(v_dim-1),np.ones(v_dim),rho*np.ones(v_dim-1)])
+        k = np.array([rho*np.ones(v_dim-1),np.ones(v_dim),rho*np.ones(v_dim-1)],dtype=object)
         sigma = diags(k,offset).toarray()
         theta = np.array([(1/(l**2)) for l in list(range(1,(v_dim+1)))])
         epsilon = np.random.normal(0,1,N)
