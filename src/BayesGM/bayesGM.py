@@ -987,15 +987,17 @@ class BayesCausalGM(object):
                 dose_response.append(np.mean(y_pred))
             return np.array(dose_response), mse_x, mse_y, mse_v
 
-    def predict(self, data, nb_intervals=1, n_samples=3000, compute_mse=False):
-        """Evaluate the model on the test data and give estimation interval.
+    def predict(self, data, nb_intervals=200, n_samples=3000, compute_mse=False, sample_y=True):
+        """Evaluate the model on the test data and give estimation interval. ITE is estimated for binary treatment and ADRF is estimated for continous treatment.
         data: (np.ndarray): Input data with shape (n, p), where p is the dimension of X.
         nb_intervals: (int): Number of intervals for the dose response function.
         n_samples: (int): Number of samples for the MCMC posterior.
-        eps: (float): Small value to avoid numerical instability.
-        return (np.ndarray): Predictions with shape (n, q), where q is the dimension of Y.
+        sample_y: (bool): sample y from a normal distribution.
+        return (np.ndarray): 
+            ITE with shape (n_samples, n) containing all the MCMC samples.
+            ADRF with shape (nb_intervals, n_samples) containing all the MCMC samples for each treatment value.
         """
-        #posterior samples of P(Z|X,Y,V) with shape (n_keep, n_test, q)
+        #posterior samples of P(Z|X,Y,V) with shape (n_samples, n_test, q)
         data_posterior_z = self.metropolis_hastings_sampler(data, n_keep=n_samples)
 
         #extract the components of Z for X,Y
@@ -1018,21 +1020,60 @@ class BayesCausalGM(object):
             print('MSE for X, Y, V:',mse_x, mse_y, mse_v)
 
         if self.params['binary_treatment']:
-            #individual treatment effect (ITE) && average treatment effect (ATE)
-            y_pred_pos_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0),
-                                    np.concatenate([data_z0, data_z1, np.ones((n_samples,len(data[0]),1))], axis=-1))))[:,:,:1]
-            y_pred_neg_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0),
-                                    np.concatenate([data_z0, data_z1, np.zeros((n_samples,len(data[0]),1))], axis=-1))))[:,:,:1]
+            
+            #extract mean and sigma^2 of positive samples both with shape (n_keep, n_test)
+            y_out_pos_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0),
+                                    np.concatenate([data_z0, data_z1, np.ones((n_samples,len(data[0]),1))], axis=-1))))
+            mu_y_pos_all = y_out_pos_all[:,:,0]
+            if 'sigma_y' in self.params:
+                sigma_square_y = self.params['sigma_y']**2
+            else:
+                sigma_square_y = tf.nn.softplus(y_out_pos_all[:,:,1])
+                
+            #whether sample the predicted outcome from a normal distribution
+            if sample_y:
+                y_pred_pos_all = np.random.normal(loc = mu_y_pos_all, scale = np.sqrt(sigma_square_y))
+            else:
+                y_pred_pos_all = mu_y_pos_all
+            
+            #extract mean and sigma^2 of negative samples both with shape (n_keep, n_test)
+            y_out_neg_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0),
+                                    np.concatenate([data_z0, data_z1, np.zeros((n_samples,len(data[0]),1))], axis=-1))))
+            mu_y_neg_all = y_out_neg_all[:,:,0]
+            if 'sigma_y' in self.params:
+                sigma_square_y = self.params['sigma_y']**2
+            else:
+                sigma_square_y = tf.nn.softplus(y_out_neg_all[:,:,1])
+                
+            #whether sample the predicted outcome from a normal distribution
+            if sample_y:
+                y_pred_neg_all = np.random.normal(loc = mu_y_neg_all, scale = np.sqrt(sigma_square_y))
+            else:
+                y_pred_neg_all = mu_y_neg_all
+                
             ite_pred_all = y_pred_pos_all-y_pred_neg_all
 
             return ite_pred_all
         else:
-            #average dose response function (ADRF)
             dose_response = []
             for x in np.linspace(self.params['x_min'], self.params['x_max'], nb_intervals):
                 data_x = np.tile(x, (n_samples, len(data[0]), 1))
-                y_pred_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0), 
-                                    tf.concat([data_z0, data_z1, data_x], axis=-1))))[:,:,:1]
+                
+                #extract mean and sigma^2 of samples given a treatment value both with shape (n_keep, n_test)
+                y_out_all = np.array(list(map(lambda x: self.f_net.predict(x, verbose=0), 
+                                    tf.concat([data_z0, data_z1, data_x], axis=-1))))
+                mu_y_all = y_out_all[:,:,0]
+                if 'sigma_y' in self.params:
+                    sigma_square_y = self.params['sigma_y']**2
+                else:
+                    sigma_square_y = tf.nn.softplus(y_out_all[:,:,1])
+                    
+                #whether sample the predicted outcome from a normal distribution
+                if sample_y:
+                    y_pred_all = np.random.normal(loc = mu_y_all, scale = np.sqrt(sigma_square_y))
+                else:
+                    y_pred_all = mu_y_all
+                
                 dose_response.append(np.mean(y_pred_all, axis=1))
             return np.array(dose_response)
         
