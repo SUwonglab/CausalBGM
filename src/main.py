@@ -1,8 +1,20 @@
 import yaml
 import argparse
-from BayesGM import BayesCausalGM, BayesPredGM, BayesPredGM_Partition, Sim_Hirano_Imbens_sampler, Sim_Sun_sampler, Sim_Colangelo_sampler, Semi_Twins_sampler, Semi_acic_sampler
-from BayesGM import make_swiss_roll, make_blobs, make_sim_data
-import numpy as np 
+import numpy as np
+import sys
+from BayesGM import (
+    BayesCausalGM, 
+    BayesPredGM, 
+    BayesPredGM_Partition, 
+    Sim_Hirano_Imbens_sampler, 
+    Sim_Sun_sampler, 
+    Sim_Colangelo_sampler, 
+    Semi_Twins_sampler, 
+    Semi_acic_sampler, 
+    make_swiss_roll, 
+    make_blobs, 
+    make_sim_data
+)
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
@@ -43,20 +55,32 @@ if __name__=="__main__":
         model.fit(data_obs=[x,y,v], epochs=epochs, epochs_per_eval=10, pretrain_iter=20000, batches_per_eval=500)
     elif params['dataset'] == 'Sim_Hirano_Imbens':
         x,y,v = Sim_Hirano_Imbens_sampler(N=20000, v_dim=200).load_all()
+        if params['pretrain']:
+            params['dataset'] = 'Sim_Hirano_Imbens_pretrain'
         model = BayesCausalGM(params=params, random_seed=123)
         model.fit(data_obs=[x,y,v], epochs=500, epochs_per_eval=30, pretrain_iter=20000, batches_per_eval=500)
     elif params['dataset'] == 'Sim_Sun':
         x,y,v = Sim_Sun_sampler(N=20000, v_dim=200).load_all()
+        if params['pretrain']:
+            params['dataset'] = 'Sim_Sun_pretrain'
         model = BayesCausalGM(params=params, random_seed=123)
         model.fit(data_obs=[x,y,v], epochs=500, epochs_per_eval=30, pretrain_iter=20000, batches_per_eval=500)
     elif params['dataset'] == 'Sim_Colangelo':
         x,y,v = Sim_Colangelo_sampler(N=20000, v_dim=100).load_all()
+        if params['pretrain']:
+            params['dataset'] = 'Sim_Colangelo_pretrain'
         model = BayesCausalGM(params=params, random_seed=123)
         model.fit(data_obs=[x,y,v], epochs=500, epochs_per_eval=30, pretrain_iter=20000, batches_per_eval=500)
     elif params['dataset'] == 'Semi_Twins':
         x,y,v = Semi_Twins_sampler().load_all()
+        if params['pretrain']:
+            params['dataset'] = 'Semi_Twins_pretrain'
         model = BayesCausalGM(params=params, random_seed=123)
         model.fit(data_obs=[x,y,v], epochs=500, epochs_per_eval=30, pretrain_iter=20000, batches_per_eval=500)
+    else:
+        print('Error: Dataset not recognized')
+        sys.exit()
+        
         
     # Prediction interval settings
     # from sklearn.datasets import make_regression

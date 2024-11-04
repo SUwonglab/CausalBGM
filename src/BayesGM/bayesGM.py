@@ -987,11 +987,11 @@ class BayesCausalGM(object):
                 dose_response.append(np.mean(y_pred))
             return np.array(dose_response), mse_x, mse_y, mse_v
 
-    def predict(self, data, nb_intervals=200, n_samples=3000, compute_mse=False, sample_y=True):
+    def predict(self, data, nb_intervals=50, n_samples=100, compute_mse=False, sample_y=True):
         """Evaluate the model on the test data and give estimation interval. ITE is estimated for binary treatment and ADRF is estimated for continous treatment.
         data: (np.ndarray): Input data with shape (n, p), where p is the dimension of X.
         nb_intervals: (int): Number of intervals for the dose response function.
-        n_samples: (int): Number of samples for the MCMC posterior.
+        n_samples: (int): Number of samples for the MCMC posterior. Default:3000.
         sample_y: (bool): sample y from a normal distribution.
         return (np.ndarray): 
             ITE with shape (n_samples, n) containing all the MCMC samples.
@@ -1053,7 +1053,8 @@ class BayesCausalGM(object):
                 
             ite_pred_all = y_pred_pos_all-y_pred_neg_all
 
-            return ite_pred_all
+            #return ite_pred_all
+            return np.array([ite_pred_all, mu_y_pos_all-mu_y_neg_all])
         else:
             dose_response = []
             for x in np.linspace(self.params['x_min'], self.params['x_max'], nb_intervals):
@@ -1074,7 +1075,8 @@ class BayesCausalGM(object):
                 else:
                     y_pred_all = mu_y_all
                 
-                dose_response.append(np.mean(y_pred_all, axis=1))
+                #dose_response.append(np.mean(y_pred_all, axis=1))
+                dose_response.append([np.mean(y_pred_all, axis=1), np.mean(mu_y_all, axis=1)])
             return np.array(dose_response)
         
     def get_log_posterior(self, data_x, data_y, data_v, data_z, eps=1e-6):
