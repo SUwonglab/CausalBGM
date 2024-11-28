@@ -329,7 +329,7 @@ class Semi_Twins_sampler(Base_sampler):
         eps = np.random.normal(0, 0.25, size=(v.shape[0],))
         gamma = np.random.normal(0, 0.025, size=(v.shape[1],))
         y = -2 * 1/(1 + np.exp(-3 * x)) + np.dot(v, gamma) + eps
-        auxiliary_constant =  np.mean(np.dot(v, gamma))
+        self.auxiliary_constant =  np.mean(np.dot(v, gamma))
         x = x.reshape(-1,1)
         y = y.reshape(-1,1)
         super().__init__(x,y,v,batch_size=batch_size,normalize=True)

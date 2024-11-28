@@ -12,6 +12,8 @@ save_res: True
 save_model: True
 binary_treatment: True
 pretrain: True
+use_bnn: True
+kl_weight: 0.0001
 lr: 0.0002
 alpha: 1
 beta: 1

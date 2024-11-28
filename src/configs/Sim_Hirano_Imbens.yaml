@@ -11,9 +11,11 @@ e_units: [64,64,64,64,64]
 f_units: [64,32,8]
 h_units: [64,32,8]
 save_res: True
-save_model: True
+save_model: False
 binary_treatment: False
-pretrain: True
+pretrain: False
+use_bnn: True
+kl_weight: 0.0001
 lr: 0.0002
 alpha: 1
 beta: 1
