@@ -871,23 +871,22 @@ class BayesCausalGM(object):
         return e_loss_adv, l2_loss_v, l2_loss_z, l2_loss_x, l2_loss_y, g_e_loss
     
 
-    def pretrain(self, n_iter=10000, batch_size=32, batches_per_eval=500, verbose=1):
+    def pretrain(self, data, n_iter=10000, batch_size=32, batches_per_eval=500, verbose=1):
+        data_x, data_y, data_v = data
         for batch_iter in range(n_iter+1):
             # update model parameters of Discriminator
             for _ in range(self.params['g_d_freq']):
-                batch_idx = np.random.choice(len(self.data_obs), batch_size, replace=False)
-                batch_obs = self.data_obs[batch_idx]
+                batch_idx = np.random.choice(len(data_x), batch_size, replace=False)
                 batch_z = self.z_sampler.get_batch(batch_size)
-                batch_v = batch_obs[:,2:]
+                batch_v = data_v[batch_idx,:]
                 dz_loss, d_loss = self.train_disc_step(batch_z, batch_v)
 
             # update model parameters of G, H, F with SGD
             batch_z = self.z_sampler.get_batch(batch_size)
-            batch_idx = np.random.choice(len(self.data_obs), batch_size, replace=False)
-            batch_obs = self.data_obs[batch_idx]
-            batch_x = batch_obs[:,:1]
-            batch_y = batch_obs[:,1:2]
-            batch_v = batch_obs[:,2:]
+            batch_idx = np.random.choice(len(data_x), batch_size, replace=False)
+            batch_x = data_x[batch_idx,:]
+            batch_y = data_y[batch_idx,:]
+            batch_v = data_v[batch_idx,:]
             e_loss_adv, l2_loss_v, l2_loss_z, l2_loss_x, l2_loss_y, g_e_loss = self.train_gen_step(batch_z, batch_v, batch_x, batch_y)
             if batch_iter % batches_per_eval == 0:
                 
@@ -898,54 +897,47 @@ class BayesCausalGM(object):
                 )
                 if verbose:
                     print(loss_contents)
-                causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage='pretrain')
+                causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data)
                 if self.params['save_res']:
                     self.save('{}/causal_pre_at_pretrain_iter-{}.txt'.format(self.save_dir, batch_iter), causal_pre)
                 if self.params['use_bnn']:
                     for i in range(1):
-                        causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage='pretrain')
+                        causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data)
                         self.save('{}/causal_pre_at_pretrain_iter-{}_rep-{}.txt'.format(self.save_dir, batch_iter, i), causal_pre)
                     
 
 #################################### Pretrain #############################################
 
-    def fit(self, data_obs, data_z_init=None,
+    def fit(self, data,
             batch_size=32, epochs=100, epochs_per_eval=5, startoff=0,
             verbose=1, save_format='txt',pretrain_iter=10000, batches_per_eval=500):
-        print('test',tf.__version__, tf.test.is_gpu_available())
+        
+        data_x, data_y, data_v = data
+        
         if self.params['save_res']:
             f_params = open('{}/params.txt'.format(self.save_dir),'w')
             f_params.write(str(self.params))
             f_params.close()
-            
-        self.data_x, self.data_y, self.data_v = data_obs
-        if len(self.data_x.shape) == 1:
-            self.data_x = self.data_x.reshape(-1,1)
-        if len(self.data_y.shape) == 1:
-            self.data_y = self.data_y.reshape(-1,1)
-        t0 = time.time()
-        self.history_z = []
-        self.history_loss = []
-        self.data_obs = np.concatenate([self.data_x, self.data_y, self.data_v], axis=-1)
-        if data_z_init is None:
-            if self.params['pretrain']:
-                self.pretrain(n_iter=pretrain_iter, batch_size=batch_size, batches_per_eval=batches_per_eval, verbose=verbose)
-                data_z_init = self.e_net(self.data_v)
-            else:
-                data_z_init = np.random.normal(0, 1, size = (len(self.data_obs), sum(self.params['z_dims']))).astype('float32')
+        
+        if self.params['pretrain']:
+            self.pretrain(data=data, n_iter=pretrain_iter, batch_size=batch_size, batches_per_eval=batches_per_eval, verbose=verbose)
+            data_z_init = self.e_net(data_v)
+        else:
+            data_z_init = np.random.normal(0, 1, size = (len(data_x), sum(self.params['z_dims']))).astype('float32')
 
         self.data_z = tf.Variable(data_z_init, name="Latent Variable",trainable=True)
+        
         best_loss = np.inf
+        t0 = time.time()
         for epoch in range(epochs+1):
-            sample_idx = np.random.choice(len(self.data_obs), len(self.data_obs), replace=False)
-            for i in range(0,len(self.data_obs) - batch_size + 1,batch_size): ## Skip the incomplete last batch
+            sample_idx = np.random.choice(len(data_x), len(data_x), replace=False)
+            for i in range(0,len(data_x) - batch_size + 1,batch_size): ## Skip the incomplete last batch
                 batch_idx = sample_idx[i:i+batch_size]
                 # update model parameters of G, H, F with SGD
                 batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z', trainable=True)
-                batch_obs = self.data_obs[batch_idx]
-                batch_x = batch_obs[:,:1]
-                batch_y = batch_obs[:,1:2]
-                batch_v = batch_obs[:,2:]
+                batch_x = data_x[batch_idx,:]
+                batch_y = data_y[batch_idx,:]
+                batch_v = data_v[batch_idx,:]
                 loss_v, loss_mse_v = self.update_g_net(batch_z, batch_v)
                 loss_x, loss_mse_x = self.update_h_net(batch_z, batch_x)
                 loss_y, loss_mse_y = self.update_f_net(batch_z, batch_x, batch_y)
@@ -968,8 +960,8 @@ class BayesCausalGM(object):
                 if verbose:
                     print(loss_contents)
                     
-                # Evaluate the full training data    
-                causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage = 'train')
+                # Evaluate the full training data
+                causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data, data_z = self.data_z)
                 print('Epoch [%d]: MSE_x = %.4f, MSE_y = %.4f, MSE_v = %.4f' % (epoch, mse_x, mse_y, mse_v))
 
                 if epoch >= startoff and mse_y < best_loss:
@@ -983,48 +975,41 @@ class BayesCausalGM(object):
                     self.save('{}/causal_pre_at_{}.{}'.format(self.save_dir, epoch, save_format), causal_pre)
                     if self.params['use_bnn']:
                         for i in range(1):
-                            causal_pre, mse_x, mse_y, mse_v = self.evaluate(stage = 'train')
+                            causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data, data_z = self.data_z)
                             self.save('{}/causal_pre_at_{}_rep_{}.{}'.format(self.save_dir, epoch, i, save_format), causal_pre)
 
-                data_z0 = self.data_z[:,:self.params['z_dims'][0]]
-                data_z1 = self.data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
-                data_z2 = self.data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
-                np.savez('%s/data_at_%d.npz'%(self.save_dir, epoch), data_z=self.data_z.numpy(), 
-                        data_x_rec=self.h_net(tf.concat([data_z0, data_z2], axis=-1)).numpy(),
-                        data_y_rec=self.f_net(tf.concat([data_z0, data_z1, self.data_x], axis=-1)).numpy(),
-                        data_v_rec=self.g_net(self.data_z).numpy())
-                            
             # Predict on the test data
             if epoch in np.linspace(0, epochs, 5):
-                causal_pre = self.predict(data_obs, n_samples=3000)
+                causal_pre = self.predict(data, n_samples=self.params['n_mcmc'], q_sd=self.params['q_sd'])
                 np.save('%s/causal_pre_v2_at_%s.npy'%(self.save_dir, epoch), causal_pre)
                 if self.params['use_bnn']:
                     for i in range(1):
-                        causal_pre = self.predict(data_obs, n_samples=3000)
+                        causal_pre = self.predict(data, n_samples=self.params['n_mcmc'], q_sd=self.params['q_sd'])
                         np.save('%s/causal_pre_v2_at_%s_rep_%s.npy'%(self.save_dir, epoch, i), causal_pre)
 
         if self.params['save_res']:
             self.save('{}/causal_pre_final.{}'.format(self.save_dir,save_format), self.best_causal_pre)
 
     @tf.function
-    def evaluate(self, nb_intervals=200, stage='pretrain'):
-        if stage == 'pretrain':
-            self.data_z = self.e_net(self.data_v)
-        data_z0 = self.data_z[:,:self.params['z_dims'][0]]
-        data_z1 = self.data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
-        data_z2 = self.data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
-        data_v_pred = self.g_net(self.data_z)[:,:self.params['v_dim']]
-        data_y_pred = self.f_net(tf.concat([data_z0, data_z1, self.data_x], axis=-1))[:,:1]
+    def evaluate(self, data, data_z=None, nb_intervals=200):
+        data_x, data_y, data_v = data
+        if data_z is None:
+            data_z = self.e_net(data_v)
+        data_z0 = data_z[:,:self.params['z_dims'][0]]
+        data_z1 = data_z[:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
+        data_z2 = data_z[:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
+        data_v_pred = self.g_net(data_z)[:,:self.params['v_dim']]
+        data_y_pred = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:,:1]
         data_x_pred = self.h_net(tf.concat([data_z0, data_z2], axis=-1))[:,:1]
         if self.params['binary_treatment']:
             data_x_pred = tf.sigmoid(data_x_pred)
-        mse_v = tf.reduce_mean((self.data_v-data_v_pred)**2)
-        mse_x = tf.reduce_mean((self.data_x-data_x_pred)**2)
-        mse_y = tf.reduce_mean((self.data_y-data_y_pred)**2)
+        mse_v = tf.reduce_mean((data_v-data_v_pred)**2)
+        mse_x = tf.reduce_mean((data_x-data_x_pred)**2)
+        mse_y = tf.reduce_mean((data_y-data_y_pred)**2)
         if self.params['binary_treatment']:
             #individual treatment effect (ITE) && average treatment effect (ATE)
-            y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(self.data_x),1))], axis=-1))[:,:1]
-            y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(self.data_x),1))], axis=-1))[:,:1]
+            y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(data_x),1))], axis=-1))[:,:1]
+            y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(data_x),1))], axis=-1))[:,:1]
             ite_pre = y_pred_pos-y_pred_neg
             return ite_pre, mse_x, mse_y, mse_v
         else:
@@ -1032,9 +1017,9 @@ class BayesCausalGM(object):
             x_values = tf.linspace(self.params['x_min'], self.params['x_max'], nb_intervals)
             
             def compute_dose_response(x):
-                data_x = tf.fill([tf.shape(self.data_x)[0], 1], x)
-                data_x = tf.cast(data_x, tf.float32)
-                y_pred = self.f_net(tf.concat([data_z0, data_z1, data_x], axis=-1))[:, :1]
+                data_x_tile = tf.fill([tf.shape(data_x)[0], 1], x)
+                data_x_tile = tf.cast(data_x_tile, tf.float32)
+                y_pred = self.f_net(tf.concat([data_z0, data_z1, data_x_tile], axis=-1))[:, :1]
                 return tf.reduce_mean(y_pred)
         
             dose_response = tf.map_fn(compute_dose_response, x_values, fn_output_signature=tf.float32)
@@ -1042,7 +1027,7 @@ class BayesCausalGM(object):
             return dose_response, mse_x, mse_y, mse_v
 
     # Predict with MCMC sampling
-    def predict(self, data, n_samples=1000, nb_intervals=20, q_sd=1.0, sample_y=True):
+    def predict(self, data, n_samples=1000, nb_intervals=20, q_sd=1.0, sample_y=True, bs=1000):
         """Evaluate the model on the test data and give estimation interval. ITE is estimated for binary treatment and ADRF is estimated for continous treatment.
         data: (list): Input data with data_x, data_y, data_v.
         nb_intervals: (int): Number of intervals for the dose response function.
@@ -1052,9 +1037,19 @@ class BayesCausalGM(object):
             ITE with shape (n_samples, n) containing all the MCMC samples.
             ADRF with shape (nb_intervals, n_samples) containing all the MCMC samples for each treatment value.
         """
+        causal_effects = []
         data_posterior_z = self.metropolis_hastings_sampler(data, n_keep=n_samples, q_sd=q_sd)
-        causal_pre = self.infer_from_latent_posterior(data_posterior_z, nb_intervals=nb_intervals, sample_y=sample_y)
-        return causal_pre
+        
+        # Iterate over the data_posterior_z in batches
+        for i in range(0, data_posterior_z.shape[0], bs):
+            batch_posterior_z = data_posterior_z[i:i + bs]
+            causal_effect_batch = self.infer_from_latent_posterior(batch_posterior_z, nb_intervals=nb_intervals, sample_y=sample_y)
+            causal_effects.append(causal_effect_batch)
+        
+        # Combine the results from all batches
+        causal_effects = tf.concat(causal_effects, axis=1)
+        
+        return causal_effects
         
     @tf.function
     def infer_from_latent_posterior(self, data_posterior_z, nb_intervals=20, sample_y=True, eps=1e-6):
@@ -1212,7 +1207,7 @@ class BayesCausalGM(object):
         return log_posterior
 
 
-    def metropolis_hastings_sampler(self, data, initial_q_sd = 1.0, q_sd = None, burn_in = 2000, n_keep = 5000, target_acceptance_rate=0.25, tolerance=0.05, adjustment_interval=50, adaptive_sd=None):
+    def metropolis_hastings_sampler(self, data, initial_q_sd = 1.0, q_sd = None, burn_in = 5000, n_keep = 3000, target_acceptance_rate=0.25, tolerance=0.05, adjustment_interval=50, adaptive_sd=None, window_size=100):
         """
         Samples from the posterior distribution P(Z|X,Y,V) using the Metropolis-Hastings algorithm with adaptive proposal adjustment.
 
@@ -1225,6 +1220,7 @@ class BayesCausalGM(object):
             target_acceptance_rate (float): Target acceptance rate for the Metropolis-Hastings algorithm.
             tolerance (float): Acceptable deviation from the target acceptance rate.
             adjustment_interval (int): Number of iterations between each adjustment of `q_sd`.
+            window_size (int): The size of the sliding window for acceptance rate calculation.
 
         Returns:
             np.ndarray: Posterior samples with shape (n_keep, n, q), where q is the dimension of Z.
@@ -1237,8 +1233,9 @@ class BayesCausalGM(object):
         # Initialize the list to store the samples
         samples = []
         counter = 0
-        accepted_count = 0  # Track the number of accepted proposals
-        total_proposals = 0  # Track the total number of proposals
+        
+        # Sliding window for acceptance tracking
+        recent_acceptances = []
         
         # Determine if q_sd should be adaptive
         if adaptive_sd is None:
@@ -1256,26 +1253,32 @@ class BayesCausalGM(object):
             # Compute the acceptance ratio
             proposed_log_posterior = self.get_log_posterior(data_x, data_y, data_v, proposed_state)
             current_log_posterior  = self.get_log_posterior(data_x, data_y, data_v, current_state)
-            acceptance_ratio = np.exp(proposed_log_posterior-current_log_posterior)
+            #acceptance_ratio = np.exp(proposed_log_posterior-current_log_posterior)
+            acceptance_ratio = np.exp(np.minimum(proposed_log_posterior - current_log_posterior, 0))
             # Accept or reject the proposed state
             indices = np.random.rand(len(data_x)) < acceptance_ratio
             current_state[indices] = proposed_state[indices]
             
-            # Update counters for acceptance rate calculation
-            accepted_count += np.sum(indices)
-            total_proposals += len(data_x)
+            # Update the sliding window
+            recent_acceptances.append(indices)
+            if len(recent_acceptances) > window_size:
+                # Keep only the most recent `window_size` elements
+                recent_acceptances = recent_acceptances[-window_size:]
             
             # Adjust q_sd periodically during the burn-in phase
             if adaptive_sd and counter < burn_in and counter % adjustment_interval == 0 and counter > 0:
                 # Calculate the current acceptance rate
-                current_acceptance_rate = accepted_count / total_proposals
-
+                current_acceptance_rate = np.sum(recent_acceptances) / (len(recent_acceptances)*len(data_x))
+                
+                print(f"Current Acceptance Rate: {current_acceptance_rate:.4f}")
+                
                 # Adjust q_sd based on the acceptance rate
                 if current_acceptance_rate < target_acceptance_rate - tolerance:
                     q_sd *= 0.9  # Decrease q_sd to increase acceptance rate
                 elif current_acceptance_rate > target_acceptance_rate + tolerance:
                     q_sd *= 1.1  # Increase q_sd to decrease acceptance rate
-
+                    
+                print(f"Final Proposal Standard Deviation (q_sd): {q_sd:.4f}")
 
             # Append the current state to the list of samples
             if counter >= burn_in:
@@ -1284,7 +1287,7 @@ class BayesCausalGM(object):
             counter += 1
             
         # Calculate the acceptance rate
-        acceptance_rate = accepted_count / total_proposals
+        acceptance_rate = np.sum(recent_acceptances) / (len(recent_acceptances)*len(data_x))
         print(f"Final Acceptance Rate: {acceptance_rate:.4f}")
         print(f"Final Proposal Standard Deviation (q_sd): {q_sd:.4f}")
         return np.array(samples)
@@ -1299,7 +1302,6 @@ class BayesCausalGM(object):
         else:
             print('Wrong saving format, please specify either .npy, .txt, or .csv')
             sys.exit()
-
 
 
 class BayesPredGM(object):

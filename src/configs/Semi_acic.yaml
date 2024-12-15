@@ -14,6 +14,7 @@ binary_treatment: True
 pretrain: True
 use_bnn: True
 kl_weight: 0.0001
+n_mcmc: 3000
 lr: 0.0002
 alpha: 1
 beta: 1

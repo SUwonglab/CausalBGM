@@ -31,6 +31,12 @@ if __name__=="__main__":
                         help="sigma for outcome")
     parser.add_argument('-N', dest='N', type=int, default=20000,
                         help="Sample size for simulation")
+    parser.add_argument('-B', dest='B', type=int, default=40000,
+                        help="Total pretrain batches")
+    parser.add_argument('-E', dest='E', type=int, default=100,
+                        help="Total epoches")
+    parser.add_argument('-seed', dest='seed', type=int, default=123,
+                        help="random seed")
     parser.add_argument('-q_sd', dest='q_sd', type=float, default=1.,
                         help="standard deviation for proposal distribution in MCMC")
     parser.add_argument('-w', dest='w', type=float, default=0.0001,
@@ -46,7 +52,10 @@ if __name__=="__main__":
     q_sd = args.q_sd
     w = args.w
     N = args.N
+    B = args.B
+    E = args.E
     ufid = args.ufid
+    random_seed = args.seed
     with open(config, 'r') as f:
         params = yaml.safe_load(f)
     
@@ -55,39 +64,41 @@ if __name__=="__main__":
     params['q_sd'] = q_sd
     params['kl_weight'] = w
     params['N'] = N
+    params['B'] = B
+    params['E'] = E 
+    epochs = E
     if params['dataset'] == 'Semi_acic':
         x,y,v = Semi_acic_sampler(ufid=ufid).load_all()
         if params['pretrain']:
-            params['dataset'] = 'Semi_acic_%s_pretrain_lr_theta=%s_lr_z=%s_30k_100'%(ufid, lr_theta, lr_z)
+            params['dataset'] = 'Semi_acic_%s_pretrain_lr_theta=%s_lr_z=%s_%s_%s_%s_%s'%(ufid, lr_theta, lr_z, B, E, random_seed, q_sd)
         else:
-            params['dataset'] = 'Semi_acic_%s_lr_theta=%s_lr_z=%s'%(ufid, lr_theta, lr_z)
+            params['dataset'] = 'Semi_acic_%s_lr_theta=%s_lr_z=%s_%s_%s'%(ufid, lr_theta, lr_z, E, random_seed)
         model = BayesCausalGM(params=params, random_seed=None)
-        epochs = 100
-        model.fit(data_obs=[x,y,v], epochs=epochs, epochs_per_eval=10, pretrain_iter=30000, batches_per_eval=500)
+        model.fit(data=(x,y,v), epochs=epochs, epochs_per_eval=10, pretrain_iter=B, batches_per_eval=500)
     elif params['dataset'] == 'Sim_Hirano_Imbens':
-        x,y,v = Sim_Hirano_Imbens_sampler(N=N, v_dim=200).load_all()
+        x,y,v = Sim_Hirano_Imbens_sampler(N=20000, v_dim=200).load_all()
         if params['pretrain']:
             params['dataset'] = 'Sim_Hirano_Imbens_pretrain_N=%s_q_sd=%s_w=%s'%(N, q_sd, w)
-        model = BayesCausalGM(params=params, random_seed=123)
-        model.fit(data_obs=[x,y,v], epochs=1000, epochs_per_eval=50, pretrain_iter=100000, batches_per_eval=500)
+        model = BayesCausalGM(params=params, random_seed=None)
+        model.fit(data=(x,y,v), epochs=epochs, epochs_per_eval=10, pretrain_iter=B, batches_per_eval=500)
     elif params['dataset'] == 'Sim_Sun':
         x,y,v = Sim_Sun_sampler(N=20000, v_dim=200).load_all()
         if params['pretrain']:
             params['dataset'] = 'Sim_Sun_pretrain_N=%s_q_sd=%s_w=%s'%(N, q_sd, w)
-        model = BayesCausalGM(params=params, random_seed=123)
-        model.fit(data_obs=[x,y,v], epochs=1000, epochs_per_eval=50, pretrain_iter=100000, batches_per_eval=500)
+        model = BayesCausalGM(params=params, random_seed=None)
+        model.fit(data=(x,y,v), epochs=epochs, epochs_per_eval=10, pretrain_iter=B, batches_per_eval=500)
     elif params['dataset'] == 'Sim_Colangelo':
         x,y,v = Sim_Colangelo_sampler(N=20000, v_dim=100).load_all()
         if params['pretrain']:
             params['dataset'] = 'Sim_Colangelo_pretrain_N=%s_q_sd=%s_w=%s'%(N, q_sd, w)
-        model = BayesCausalGM(params=params, random_seed=123)
-        model.fit(data_obs=[x,y,v], epochs=1000, epochs_per_eval=50, pretrain_iter=100000, batches_per_eval=500)
+        model = BayesCausalGM(params=params, random_seed=None)
+        model.fit(data=(x,y,v), epochs=epochs, epochs_per_eval=10, pretrain_iter=B, batches_per_eval=500)
     elif params['dataset'] == 'Semi_Twins':
         x,y,v = Semi_Twins_sampler().load_all()
         if params['pretrain']:
             params['dataset'] = 'Semi_Twins_pretrain_q_sd=%s_w=%s'%(q_sd, w)
-        model = BayesCausalGM(params=params, random_seed=123)
-        model.fit(data_obs=[x,y,v], epochs=1000, epochs_per_eval=50, pretrain_iter=100000, batches_per_eval=500)
+        model = BayesCausalGM(params=params, random_seed=None)
+        model.fit(data=(x,y,v), epochs=epochs, epochs_per_eval=10, pretrain_iter=B, batches_per_eval=500)
     else:
         print('Error: Dataset not recognized')
         sys.exit()
