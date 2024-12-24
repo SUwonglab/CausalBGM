@@ -21,7 +21,7 @@ CausalBGM was developed with Python and TensorFlow. Now both [Python](https://py
 
 - Point estimate of ATE, ITE, ADRF, CATE.
 
-- Uncertainty qualification of ATE, ITE, ADRF, CATE.
+- Estimate prediction intervals of ATE, ITE, ADRF, CATE with user-specific significant level.
 
 Checkout application examples in the [Python Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_py.html) and [R Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_r.html).
 
@@ -31,7 +31,7 @@ Checkout application examples in the [Python Tutorial](https://causalegm.readthe
 
 ## Datasets
 
-Create a `CausalEGM/data` folder and uncompress the dataset in the `CausalEGM/data` folder.
+Create a `CausalBGM/data` folder and uncompress the dataset in the `CausalBGM/data` folder.
 
 - [Twin dataset](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data). Google Drive download [link](https://drive.google.com/file/d/1fKCb-SHNKLsx17fezaHrR2j29T3uD0C2/view?usp=sharing).
 
