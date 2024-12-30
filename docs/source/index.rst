@@ -61,7 +61,6 @@ Have a question or would like to start a new discussion? Free free to drop me an
 
    about
    installation
-   api
 
 .. toctree::
    :caption: Tutorials

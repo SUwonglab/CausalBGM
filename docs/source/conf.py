@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.abspath("_ext"))
 #sys.path.insert(0, os.path.abspath(__file__+'../../../../src'))
 #sys.path.insert(0, os.path.abspath(__file__+'../../../../src/CausalEGM'))
 #import CausalBGM
-import CausalEGM
+
 # remove PyCharm’s old six module
 
 if "six" in sys.modules:
