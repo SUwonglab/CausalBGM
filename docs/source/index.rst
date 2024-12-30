@@ -3,7 +3,7 @@
 CausalBGM - An AI-powered Bayesian generative modeling approach for causal inference in observational studies
 =============================================================================================================
 
-.. image:: https://raw.githubusercontent.com/SUwonglab/CausalBGM/main/model.jpg
+.. image:: https://raw.githubusercontent.com/SUwonglab/CausalBGM/main/model.png
    :width: 300px
    :align: left
 
