@@ -18,8 +18,8 @@ Without carefully ensuring a proper directed acyclic graph (DAG) structure, the 
 Second, similar to existing AI-based methods primarily focuses on point estimate. CausalEGM relies on deterministic functions to establish the mapping between observed data and latent features. 
 Deterministic mappings can limit the ability of model to capture and quantify uncertainty, thereby undermining the statistical rigor of the approach and making it challenging to draw reliable causal conclusions in many applications where uncertainty plays a critical role. 
 
-Core Idea in CausalEGM
-~~~~~~~~~~~~~~~~~~~~~~~
+Core Idea in CausalBGM
+~~~~~~~~~~~~~~~~~~~~~~
 
 To address the above issues, we introduce CausalBGM, a AI-powered Bayesian Generative Modeling (BGM) framework for estimating causal effects in the presence of high-dimensional covariants. 
 Compared to CausalEGM, the new CausalBGM removes the encoder function entirely and employs a fully Bayesian procedure to infer latent features through an innovative iterateive updating algorithm.
