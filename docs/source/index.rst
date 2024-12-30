@@ -4,7 +4,7 @@ CausalBGM - An AI-powered Bayesian generative modeling approach for causal infer
 =============================================================================================================
 
 .. image:: https://raw.githubusercontent.com/SUwonglab/CausalBGM/main/model.png
-   :scale: 100%
+   :width: 800px
    :align: left
 
 
