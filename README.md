@@ -48,7 +48,7 @@ Qiao Liu and Wing Hung Wong. An AI-powered Bayesian generative modeling approach
 
 Found a bug or would like to see a feature implemented? Feel free to submit an [issue](https://github.com/SUwonglab/CausalBGM/issues/new/choose). 
 
-Have a question or would like to start a new discussion? You can also always send us an [e-mail](mailto:liuqiao@stanford.edu?subject=[GitHub]%20CausalEGM%20project). 
+Have a question or would like to start a new discussion? You can also always send us an [e-mail](mailto:liuqiao@stanford.edu?subject=[GitHub]%20CausalBGM%20project). 
 
-Your help to improve CausalBGM is highly appreciated! For further information visit [https://causalegm.readthedocs.io/](https://causalegm.readthedocs.io/).
+Your help to improve CausalBGM is highly appreciated! For further information visit [website](https://causalbgm.readthedocs.io/).
 
