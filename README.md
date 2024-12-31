@@ -27,7 +27,7 @@ Checkout application examples in the [Python Tutorial](https://causalegm.readthe
 
 ## Latest News
 
-- Dec/2022: Preprint paper of CausalBGM is out on [arXiv](https://arxiv.org/abs/2212.05925/).
+- Dec/2024: Preprint paper of CausalBGM is out on [arXiv](https://arxiv.org/abs/2212.05925/).
 
 ## Datasets
 
