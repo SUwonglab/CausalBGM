@@ -13,10 +13,9 @@ h_units: [64,32,8]
 save_res: True
 save_model: False
 binary_treatment: False
-pretrain: True
+use_egm_init: True
 use_bnn: True
 kl_weight: 0.0001
-n_mcmc: 3000
 lr: 0.0002
 alpha: 1
 beta: 1

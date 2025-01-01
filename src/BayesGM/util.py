@@ -9,115 +9,6 @@ from sklearn import datasets
 from scipy.sparse import diags
 from scipy.stats import norm
 
-
-def make_swiss_roll(n_samples=100, noise=(0.1, 0.6), random_state=None):
-    """Generate a swiss roll dataset.
-    Parameters
-    ----------
-    n_samples : int, default=100
-        The number of sample points on the Swiss Roll.
-
-    random_state : int, RandomState instance or None, default=None.
-
-    Returns
-    -------
-    X : ndarray of shape (n_samples, 3)
-        The points.
-
-    t : ndarray of shape (n_samples,)
-        The univariate position of the sample according to the main dimension
-        of the points in the manifold.
-    """
-    np.random.seed(random_state)
-    t = 1.5 * np.pi * (1 + 2 * np.random.uniform(size=n_samples))
-    y = 10 * np.random.uniform(size=n_samples)
-
-    x = 0.5*t * np.cos(t)
-    z = 0.5*t * np.sin(t)
-    X = np.vstack((x, y, z))
-    lb, ub = noise
-    sd_t = ((t-np.min(t))*(ub-lb))/(np.max(t)-np.min(t))+lb
-    X += np.random.normal(0,sd_t,size=(3, n_samples))
-    X = X.T
-    return X, t
-
-def make_blobs(n_samples=100, n_features=2, centers=2, cluster_std=1.0, random_state=None):
-    """Generate isotropic Gaussian blobs for clustering.
-    Parameters
-    ----------
-    n_samples : int, default=100
-        The total number of points equally divided among clusters.
-
-    n_features : int, default=2
-        The number of features for each sample.
-
-    centers : int or array of shape [n_centers, n_features], default=3
-        The number of centers to generate, or the fixed center locations.
-
-    cluster_std : float or sequence of floats, default=1.0
-        The standard deviation of the clusters.
-
-    random_state : int, RandomState instance or None, default=None.
-
-    Returns
-    -------
-    X : ndarray of shape (n_samples, n_features)
-        The generated samples.
-
-    y : ndarray of shape (n_samples,)
-        The integer labels for cluster membership of each sample.
-    """
-    np.random.seed(random_state)
-    X, y = datasets.make_blobs(n_samples=n_samples, n_features=n_features, centers=centers, cluster_std=cluster_std)
-    return X, y
-
-def make_sim_data(n_samples=2000, x_dim=5, y_dim=1, z_dim=5, w_dim=5, order='linear', random_state=None):
-    """Generate simulation data for regression.
-    Parameters
-    ----------
-    n_samples : int, default=2000
-        The total number of points.
-
-    x_dim : int, default=5
-        The number of features for X.
-
-    y_dim : int, default=1
-        The number of features for Y.
-
-    z_dim : int, default=5
-        The number of features for Z.
-
-    w_dim : int, default=4
-        The number of features for W.
-
-    order : int, default=4
-        The number of features for W.
-
-    random_state : int, RandomState instance or None, default=None.
-
-    Returns
-    -------
-    X : ndarray of shape (n_samples, x_dim)
-        The predictor variable samples.
-
-    y : ndarray of shape (n_samples, y_dim)
-        The response variable samples.
-    """
-    np.random.seed(random_state)
-    assert z_dim >= w_dim, "The dimension of Z must be greater than or equal to the dimension of W."
-    Z = np.random.normal(size=(n_samples, z_dim))
-    X = np.random.normal(loc=Z, scale=0.5).astype('float32')
-    W = np.random.uniform(low=-1, high=1, size=(w_dim, y_dim))
-    if order == 'linear':
-        center = np.dot(Z[:,:w_dim], W)
-    elif order == 'quadratic':
-        center = np.dot(Z[:,:w_dim] ** 2, W)
-    else:
-        print('The order of the model is not recognized.')
-        sys.exit()
-    y = np.random.normal(loc=center, scale=0.5).astype('float32')
-    return X, y
-
 def Dataset_selector(name):
     if name == 'Semi_acic':
         return Semi_acic_sampler
@@ -354,39 +245,16 @@ class Gaussian_sampler(object):
     def load_all(self):
         return self.X, self.Y
 
-class Assump_valid_sampler(object):
-    def __init__(self, v_dim, z_dim, N=100000, n_heldout=10000, random_seed=123):
-        from scipy.stats import ortho_group
-        np.random.seed(random_seed)
-        self.sample_size = N
-        #preset diagonal matrix M
-        eigenvalues = np.hstack([np.linspace(5,4,10),np.linspace(0.1,0.01,v_dim-10)])
-        M = np.diag(eigenvalues)
-        PCA_recon = sum(eigenvalues[z_dim:])
-        print('PCA_reconstruction error: %.5f'%PCA_recon)
-        #randomly generating othornomal bases and generate V
-        U = ortho_group.rvs(v_dim)
-        self.Sigma = np.dot(np.dot(U,M), U.T)
-        self.mu = np.random.uniform(low=-1.0, high=1.0,size=(v_dim,))
-        V = np.random.multivariate_normal(mean=self.mu, cov=self.Sigma,size = self.sample_size)
-        V_heldout = np.random.multivariate_normal(mean=self.mu, cov=self.Sigma,size = n_heldout)
-        #construct features of V
-        self.A = np.dot(np.diag(eigenvalues**(-0.5)),U.T)
-        T = np.dot(self.A, (V-self.mu).T).T
-        T_heldout = np.dot(self.A, (V_heldout-self.mu).T).T
-        self.A = self.A.astype('float32')
-        self.mu = self.mu.astype('float32')
-        self.data_v = V.astype('float32')
-        self.data_t = T.astype('float32')
-        self.data_v_heldout = V_heldout.astype('float32')
-        self.data_t_heldout = T_heldout.astype('float32')
+def save_data(fname, data):
 
-    def train(self, batch_size):
-        indx = np.random.randint(low = 0, high = self.sample_size, size = batch_size)
-        return self.data_v[indx, :], self.data_t[indx, :]
-    def load_all(self):
-        return self.data_v, self.data_t
-
+    """Save the data to the specified path."""
+    if fname[-3:] == 'npy':
+        np.save(fname, data)
+    elif fname[-3:] == 'txt' or 'csv':
+        np.savetxt(fname, data, fmt='%.6f')
+    else:
+        print('Wrong saving format, please specify either .npy, .txt, or .csv')
+        sys.exit()
 
 def parse_file(path, sep='\t', header = 0, normalize=True):
     assert os.path.exists(path)

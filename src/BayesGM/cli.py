@@ -1,5 +1,5 @@
-from .bayesGM import BayesGM
-from .util import *
+from .bayesGM import CausalBGM
+from .util import parse_file, save_data
 import argparse
 from BayesGM import __version__
 
@@ -69,10 +69,14 @@ def main(args=None):
     params = vars(args)
     data = parse_file(args.input)
     params['v_dim'] = data[-1].shape[1]
-    model = BayesGM()(params,random_seed=args.seed)
+    model = CausalBGM(params=params, random_seed=None)
     print('Start training...')
-    model.train(data=data, batch_size=args.batch_size, n_iter=args.n_iter, batches_per_eval=args.batches_per_eval, 
-                startoff=args.startoff, save_format=args.save_format)
+    model.egm_init(data=(x,y,v), n_iter=30000, batches_per_eval=500, verbose=1)
+    model.fit(data=(x,y,v), epochs=100, epochs_per_eval=10)
+    causal_pre, pos_intervals = model.predict(data=(x,y,v), alpha=0.01, n_mcmc=3000, q_sd=1.0)
+    save_data('{}/causal_effect_point_estimate.txt'.format(model.save_dir), causal_pre)
+    save_data('{}/causal_effect_poterior_interval.txt'.format(model.save_dir), pos_intervals)
+
 
 if __name__ == "__main__":
    main()
