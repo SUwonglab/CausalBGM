@@ -268,7 +268,7 @@ class CausalBGM(object):
             grad_norm_z = tf.sqrt(tf.reduce_sum(tf.square(grad_z), axis=1))
             gpz_loss = tf.reduce_mean(tf.square(grad_norm_z - 1.0))
             
-            d_loss = dz_loss + self.params['gamma']*gpz_loss
+            d_loss = dz_loss + 10 * gpz_loss
 
         # Calculate the gradients for generators and discriminators
         d_gradients = disc_tape.gradient(d_loss, self.dz_net.trainable_variables)
@@ -312,8 +312,8 @@ class CausalBGM(object):
             else:
                 l2_loss_x = tf.reduce_mean((data_x_ - data_x)**2)
             l2_loss_y = tf.reduce_mean((data_y_ - data_y)**2)
-            g_e_loss = e_loss_adv+self.params['alpha']*(l2_loss_v + self.params['use_z_rec']*l2_loss_z) \
-                        + self.params['beta']*(l2_loss_x+l2_loss_y) + 0.001 * sigma_square_loss
+            g_e_loss = e_loss_adv+(l2_loss_v + self.params['use_z_rec']*l2_loss_z) \
+                        + (l2_loss_x+l2_loss_y) + 0.001 * sigma_square_loss
 
         # Calculate the gradients for generators and discriminators
         g_e_gradients = gen_tape.gradient(g_e_loss, self.g_net.trainable_variables+self.e_net.trainable_variables+\
@@ -461,7 +461,7 @@ class CausalBGM(object):
             return dose_response, mse_x, mse_y, mse_v
 
     # Predict with MCMC sampling
-    def predict(self, data, alpha=0.01, n_mcmc=3000, nb_intervals=20, q_sd=1.0, sample_y=True, bs=100):
+    def predict(self, data, alpha=0.01, n_mcmc=3000, x_values=None, q_sd=1.0, sample_y=True, bs=100):
         """
         Evaluate the model on the test data and provide both point estimates and posterior intervals for causal effects.
         - For binary treatment, the Individual Treatment Effect (ITE) is estimated.
@@ -475,8 +475,8 @@ class CausalBGM(object):
             Significance level for the posterior interval (default: 0.01).
         n_mcmc : int
             Number of posterior MCMC samples to draw (default: 3000).
-        nb_intervals : int
-            Number of intervals for dose-response function estimation in the continuous treatment setting (default: 20).
+        x_values : list of floats or np.ndarray
+            Treatment values for dose-response function to be predicted (default: None).
         q_sd : float
             Standard deviation for the proposal distribution used in Metropolis-Hastings (MH) sampling (default: 1.0).
         sample_y : bool
@@ -493,10 +493,11 @@ class CausalBGM(object):
                 Posterior intervals for the ITE with shape (n, 2), representing [lower bound, upper bound].
         Continuous treatment setting:
             ADRF : np.ndarray
-                Point estimates of the Average Dose-Response Function, with shape (nb_intervals,).
+                Point estimates of the Average Dose-Response Function, with shape (len(x_values),).
             pos_int : np.ndarray
-                Posterior intervals for the ADRF with shape (nb_intervals, 2), representing [lower bound, upper bound].
+                Posterior intervals for the ADRF with shape (len(x_values), 2), representing [lower bound, upper bound].
         """
+        assert 0 < alpha < 1, "The significance level 'alpha' must be greater than 0 and less than 1."
         # Initialize list to store causal effect samples
         causal_effects = []
         print('MCMC Latent Variable Sampling ...')
@@ -505,7 +506,7 @@ class CausalBGM(object):
         # Iterate over the data_posterior_z in batches
         for i in range(0, data_posterior_z.shape[0], bs):
             batch_posterior_z = data_posterior_z[i:i + bs]
-            causal_effect_batch = self.infer_from_latent_posterior(batch_posterior_z, nb_intervals=nb_intervals, sample_y=sample_y).numpy()
+            causal_effect_batch = self.infer_from_latent_posterior(batch_posterior_z, x_values=x_values, sample_y=sample_y).numpy()
             causal_effects.append(causal_effect_batch)
         
         # Estimate the posterior interval with user-specific significance level alpha
@@ -529,14 +530,14 @@ class CausalBGM(object):
 
         
     @tf.function
-    def infer_from_latent_posterior(self, data_posterior_z, nb_intervals=20, sample_y=True, eps=1e-6):
+    def infer_from_latent_posterior(self, data_posterior_z, x_values=None, sample_y=True, eps=1e-6):
         """Infer causal estimate on the test data and give estimation interval and posterior latent variables. ITE is estimated for binary treatment and ADRF is estimated for continous treatment.
         data_posterior_z: (np.ndarray): Posterior latent variables with shape (n_samples, n, p), where p is the dimension of Z.
-        nb_intervals: (int): Number of intervals for the dose response function.
+        x_values: (list of floats or np.ndarray): Number of intervals for the dose response function.
         sample_y: (bool): consider the variance function in outcome generative model.
         return (np.ndarray): 
             ITE with shape (n_samples, n) containing all the MCMC samples.
-            ADRF with shape (nb_intervals, n_samples) containing all the MCMC samples for each treatment value.
+            ADRF with shape (len(x_values), n_samples) containing all the MCMC samples for each treatment value.
         """
 
         #extract the components of Z for X,Y
@@ -618,7 +619,7 @@ class CausalBGM(object):
                     
                 return tf.reduce_mean(y_pred_all, axis=1)
             
-            x_values = tf.linspace(self.params['x_min'], self.params['x_max'], nb_intervals)
+            #x_values = tf.linspace(self.params['x_min'], self.params['x_max'], nb_intervals)
             
             dose_response = tf.map_fn(compute_dose_response, x_values, fn_output_signature=tf.float32)
             
