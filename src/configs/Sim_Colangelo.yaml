@@ -1,5 +1,13 @@
+# General parameters
 dataset: Sim_Colangelo
 output_dir: '.'
+save_res: True
+save_model: True
+binary_treatment: False
+use_egm_init: True
+use_bnn: True
+
+# Parameters for iterative updating algorithm
 z_dims: [5,5,5,5]
 v_dim: 100
 lr_theta: 0.0001
@@ -7,19 +15,12 @@ lr_z: 0.0001
 x_min: -2
 x_max: 2
 g_units: [64,64,64,64,64]
-e_units: [64,64,64,64,64]
 f_units: [64,32,8]
 h_units: [64,32,8]
-save_res: True
-save_model: True
-binary_treatment: False
-use_egm_init: True
-use_bnn: True
 kl_weight: 0.0001
+
+# Parameters for EGM initialization
 lr: 0.0002
-alpha: 1
-beta: 1
-gamma: 10
 g_d_freq: 5
 use_z_rec: True
 e_units: [64,64,64,64,64]

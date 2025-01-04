@@ -1,23 +1,24 @@
+# General parameters
 dataset: Semi_acic
 output_dir: '.'
-z_dims: [3,6,3,6]
-v_dim: 177
-lr_theta: 0.0001
-lr_z: 0.0001
-g_units: [64,64,64,64,64]
-e_units: [64,64,64,64,64]
-f_units: [64,32,8]
-h_units: [64,32,8]
 save_res: True
 save_model: True
 binary_treatment: True
 use_egm_init: True
 use_bnn: True
+
+# Parameters for iterative updating algorithm
+z_dims: [3,6,3,6]
+v_dim: 177
+lr_theta: 0.0001
+lr_z: 0.0001
+g_units: [64,64,64,64,64]
+f_units: [64,32,8]
+h_units: [64,32,8]
 kl_weight: 0.0001
+
+# Parameters for EGM initialization
 lr: 0.0002
-alpha: 1
-beta: 1
-gamma: 10
 g_d_freq: 5
 use_z_rec: True
 e_units: [64,64,64,64,64]
