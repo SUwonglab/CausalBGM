@@ -27,6 +27,8 @@ Checkout application examples in the [Python Tutorial](https://causalegm.readthe
 
 ## Latest News
 
+- Jan/2025: The preprint of CausalBGM paper is out on [arXiv](https://arxiv.org/abs/2501.00755).
+
 - Dec/2024: The Python Pypi package (v0.1.0) of CausalBGM is out on [Pypi](https://pypi.org/project/CausalBGM/).
 
 ## Datasets
