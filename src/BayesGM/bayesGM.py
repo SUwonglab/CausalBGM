@@ -498,6 +498,15 @@ class CausalBGM(object):
                 Posterior intervals for the ADRF with shape (len(x_values), 2), representing [lower bound, upper bound].
         """
         assert 0 < alpha < 1, "The significance level 'alpha' must be greater than 0 and less than 1."
+
+        if x_values is not None:
+            if np.isscalar(x_values):
+                # Convert scalar to 1D array
+                x_values = np.array([x_values], dtype=float) 
+            else:
+                # Convert list to NumPy array
+                x_values = np.array(x_values, dtype=float)
+
         # Initialize list to store causal effect samples
         causal_effects = []
         print('MCMC Latent Variable Sampling ...')
@@ -618,8 +627,6 @@ class CausalBGM(object):
                     y_pred_all = mu_y_all
                     
                 return tf.reduce_mean(y_pred_all, axis=1)
-            
-            #x_values = tf.linspace(self.params['x_min'], self.params['x_max'], nb_intervals)
             
             dose_response = tf.map_fn(compute_dose_response, x_values, fn_output_signature=tf.float32)
             
