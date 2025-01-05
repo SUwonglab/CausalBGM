@@ -3,80 +3,119 @@ from .util import parse_file, save_data
 import argparse
 from BayesGM import __version__
 
-
 def main(args=None):
-
-    parser = argparse.ArgumentParser('BayesGM',
-                                     description=f'BayesGM: A general Beyesian framework for generative modeling - v{__version__}')
-    parser.add_argument('-output_dir', dest='output_dir', type=str,
-                        help="Output directory", required=True)
-    parser.add_argument('-input', dest='input', type=str,
-                        help="Input data file must be in csv or txt or npz format", required=True)
-    parser.add_argument('-dataset', dest='dataset', type=str,default='Mydata',
+    # General parameters
+    parser = argparse.ArgumentParser('CausalBGM',
+                                     description=f'CausalBGM: An AI-powered Bayesian generative modeling approach for causal inference in observational studies - v{__version__}')
+    parser.add_argument('-o', '--output_dir', type=str, required=True,
+                        help="Output directory")
+    parser.add_argument('-i', '--input', type=str, required=True,
+                        help="Input data file must be in csv or txt or npz format")
+    parser.add_argument('--delimiter', type=str, default='\t',
+                        help="Delimiter for txt or csv files (default: tab '\\t').")
+    parser.add_argument('-d', '--dataset', type=str,default='Mydata',
                         help="Dataset name")
-    parser.add_argument('--save-model', default=True, action=argparse.BooleanOptionalAction,
-                        help="whether to save model.")
-    parser.add_argument('--binary-treatment', default=True, action=argparse.BooleanOptionalAction,
-                        help="whether use binary treatment setting.")
-
-    #model hypterparameters
-    parser.add_argument('-z_dims', dest='z_dims', type=int, nargs='+', default=[3,3,6,6],
-                        help='Latent dimensions of the four encoder outputs e(V)_0~3.')
-    parser.add_argument('-lr', dest='lr', type=float, default=0.0002,
-                        help="Learning rate for the optimizer (default: 0.0002).")
-    parser.add_argument('-alpha', dest='alpha', type=float, default=1.,
-                        help="Coefficient for reconstruction loss (default: 1).")
-    parser.add_argument('-beta', dest='beta', type=float, default=1.,
-                        help="Coefficient for treatment and outcome MSE loss (default: 1).")
-    parser.add_argument('-gamma', dest='gamma', type=float, default=10.,
-                        help="Coefficient for gradient penalty loss (default: 10).")
-    parser.add_argument('-g_d_freq', dest='g_d_freq', type=int, default=5,
-                        help="Frequency for updating discriminators and generators (default: 5).")
-    #network hyperparameters
-    parser.add_argument('-g_units', dest='g_units', type=int, nargs='+', default=[64,64,64,64,64],
-                        help='Number of units for generator/decoder network (default: [64,64,64,64,64]).')
-    parser.add_argument('-e_units', dest='e_units', type=int, nargs='+', default=[64,64,64,64,64],
-                        help='Number of units for encoder network (default: [64,64,64,64,64]).')
-    parser.add_argument('-f_units', dest='f_units', type=int, nargs='+', default=[64,32,8],
-                        help='Number of units for f network (default: [64,32,8]).')
-    parser.add_argument('-h_units', dest='h_units', type=int, nargs='+', default=[64,32,8],
-                        help='Number of units for h network (default: [64,32,8]).')
-    parser.add_argument('-dz_units', dest='dz_units', type=int, nargs='+', default=[64,32,8],
-                        help='Number of units for discriminator network in latent space (default: [64,32,8]).')
-    parser.add_argument('-dv_units', dest='dv_units', type=int, nargs='+', default=[64,32,8],
-                        help='Number of units for discriminator network in confounder space (default: [64,32,8]).')
-    parser.add_argument('--use-z-rec', default=True, action=argparse.BooleanOptionalAction,
-                        help="Use the reconstruction for latent features.")
-    parser.add_argument('--use-v-gan', default=True, action=argparse.BooleanOptionalAction,
-                        help="Use the GAN distribution match for covariates.")
-    #training parameters
-    parser.add_argument('-batch_size', dest='batch_size', type=int,
-                        default=32, help='Batch size (default: 32).')
-    parser.add_argument('-n_iter', dest='n_iter', type=int, default=30000,
-                        help="Number of iterations (default: 30000).")
-    parser.add_argument('-startoff', dest='startoff', type=int, default=0,
-                        help="Iteration for starting evaluation (default: 0).")
-    parser.add_argument('-batches_per_eval', dest='batches_per_eval', type=int, default=500,
-                        help="Number of iterations per evaluation (default: 500).")
-    parser.add_argument('-save_format', dest='save_format', type=str,default='txt',
+    parser.add_argument('-F', '--save_format', type=str,default='txt',
                         help="Saving format (default: txt)")
-    parser.add_argument('--save_res', default=True, action=argparse.BooleanOptionalAction,
-                        help="Whether to save results during training.")
+    parser.add_argument('-save_model', default=False, action=argparse.BooleanOptionalAction,
+                        help="whether to save model.")
+    parser.add_argument('-save_res', default=True, action=argparse.BooleanOptionalAction,
+                        help="whether to save intermediate results.")
+    parser.add_argument('-B', '--binary_treatment', default=True, action=argparse.BooleanOptionalAction,
+                        help="whether use binary treatment setting.")
+    parser.add_argument('--use_egm_init', default=True, action=argparse.BooleanOptionalAction,
+                        help="whether use EGM initialization.")
+    parser.add_argument('--use_bnn', default=True, action=argparse.BooleanOptionalAction,
+                        help="whether use Bayesian neural nets.")
+
+    # Parameters for iterative updating algorithm
+    parser.add_argument('-Z', '--z_dims', type=int, nargs='+', default=[3,3,6,6],
+                        help='Latent dimensions of Z (default: [3, 3, 6, 6]).')
+    parser.add_argument('--lr_theta', type=float, default=0.0001,
+                        help="Learning rate for updating model parameters (default: 0.0001).")
+    parser.add_argument('--lr_z', type=float, default=0.0001,
+                        help="Learning rate for updating latent variables (default: 0.0001).")
+    parser.add_argument('--x_min', type=float, default=0.,
+                        help="Lower bound for treatment interval (default: 0.0).")
+    parser.add_argument('--x_max', type=float, default=3.,
+                        help="Upper bound for treatment interval (default: 3.0).")
+    parser.add_argument('--x_values', type=float, nargs='+',
+                        help="List of treatment values to be predicted. Provide space-separated values. Example: --x_values 0.5 1.0 1.5")
+    parser.add_argument('--g_units', type=int, nargs='+', default=[64,64,64,64,64],
+                        help='Number of units for covariates generative model (default: [64,64,64,64,64]).')
+    parser.add_argument('--f_units', type=int, nargs='+', default=[64,32,8],
+                        help='Number of units for outcome generative model (default: [64,32,8]).')
+    parser.add_argument('--h_units', type=int, nargs='+', default=[64,32,8],
+                        help='Number of units for treatment generative model (default: [64,32,8]).')
+
+    # Parameters for EGM initialization
+    parser.add_argument('--kl_weight', type=float, default=0.0001,
+                        help="coefficient for KL divergence term in BNNs (default: 0.0001).")
+    parser.add_argument('--lr', type=float, default=0.0001,
+                        help="Learning rate for EGM initialization (default: 0.0002).")
+    parser.add_argument('--g_d_freq', type=int, default=5,
+                        help="Frequency for updating discriminators and generators (default: 5).")
+    parser.add_argument('--e_units', type=int, nargs='+', default=[64,64,64,64,64],
+                        help='Number of units for encoder network (default: [64,64,64,64,64]).')
+    parser.add_argument('--dz_units', type=int, nargs='+', default=[64,32,8],
+                        help='Number of units for discriminator network in latent space (default: [64,32,8]).')
+    parser.add_argument('--use-z-rec', default=True, action=argparse.BooleanOptionalAction,
+                        help="Use the reconstruction for latent features (default: True).")
+
+    # Parameters for fitting && predicting
+    parser.add_argument('-N','--n_iter', type=int, default=30000,
+                        help="Number of iterations (default: 30000).")
+    parser.add_argument('--startoff', type=int, default=0,
+                        help="Iteration for starting evaluation (default: 0).")
+    parser.add_argument('--batches_per_eval', type=int, default=500,
+                        help="Number of iterations per evaluation (default: 500).")
+    parser.add_argument('-E', '--epochs', type=int, default=100,
+                        help="Number of epochs in iterative updating algorithm (default: 100).")
+    parser.add_argument('-M', '--n_mcmc', type=int, default=3000,
+                        help="MCMC sample size (default: 3000).")
+    parser.add_argument('--epochs_per_eval', type=int, default=10,
+                        help="Number of epochs per evaluation (default: 10).")
+    parser.add_argument('--alpha', type=float, default=0.01,
+                        help="Significant level (default: 0.01).")
+
     #Random seed control
-    parser.add_argument('-seed', dest='seed', type=int, default=123,
+    parser.add_argument('--seed', type=int, default=123,
                         help="Random seed for reproduction (default: 123).")
     args = parser.parse_args()
     params = vars(args)
     data = parse_file(args.input)
     params['v_dim'] = data[-1].shape[1]
-    model = CausalBGM(params=params, random_seed=None)
-    print('Start training...')
-    model.egm_init(data=(x,y,v), n_iter=30000, batches_per_eval=500, verbose=1)
-    model.fit(data=(x,y,v), epochs=100, epochs_per_eval=10)
-    causal_pre, pos_intervals = model.predict(data=(x,y,v), alpha=0.01, n_mcmc=3000, q_sd=1.0)
-    save_data('{}/causal_effect_point_estimate.txt'.format(model.save_dir), causal_pre)
-    save_data('{}/causal_effect_poterior_interval.txt'.format(model.save_dir), pos_intervals)
 
+    # Instantiate a CausalBGM model
+    model = CausalBGM(params=params, random_seed=None)
+
+    # Perform Encoding Generative Modeling (EGM) initialization
+    # n_iter=30000: Number of iterations for the initialization process
+    # batches_per_eval=500: Frequency of evaluations (e.g., every 500 batches)
+    # verbose=1: Controls verbosity level, showing progress and evaluation metrics
+    model.egm_init(data=data, n_iter=params['n_iter'], batches_per_eval=params['batches_per_eval'], verbose=1)
+
+    # Train the CausalBGM model with an iterative updating algorithm
+    # epochs=100: Total number of training epochs
+    # epochs_per_eval=10: Frequency of evaluation during training (e.g., every 10 epochs)
+    model.fit(data=data, epochs=params['epochs'], epochs_per_eval=params['epochs_per_eval'])
+
+    # Make predictions using the trained CausalBGM model
+    # alpha=0.01: Significance level for the posterior intervals
+    # n_mcmc=3000: Number of MCMC posterior samples for inference
+    # x_values: treatment values to be predicted for ADRF
+    # q_sd=1.0: Standard deviation for the proposal distribution in Metropolis-Hastings sampling,q_sd=-1 enables adaptive S.D.
+    # Returns:
+    #   causal_pre: Estimated causal effects (ADRF for continuous treatment) with shape (len(x_values),)
+    #   pos_intervals: Posterior intervals for the estimated causal effects with shape (len(x_values), 2)
+    if params['binary_treatment']:
+        causal_pre, pos_intervals = model.predict(data=data, alpha=params['alpha'], n_mcmc=params['n_mcmc'], q_sd=1.0)
+    else:
+        causal_pre, pos_intervals = model.predict(data=data, alpha=params['alpha'], n_mcmc=params['n_mcmc'], x_values=params['x_values'], q_sd=1.0)
+
+    # Save results to 'save_dir'
+    save_data('{}/causal_effect_point_estimate.{}'.format(model.save_dir, params['save_format']), causal_pre)
+    save_data('{}/causal_effect_poterior_interval.{}'.format(model.save_dir, params['save_format']), pos_intervals)
 
 if __name__ == "__main__":
    main()
