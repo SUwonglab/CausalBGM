@@ -257,6 +257,49 @@ def save_data(fname, data):
         sys.exit()
 
 def parse_file(path, sep='\t', header = 0, normalize=True):
+    """
+    Parse an input file and extract features (x, y, and v) for model training or evaluation.
+
+    Parameters:
+    -----------
+    path : str
+        Path to the input file. The file can be in .npz, .csv, or .txt format.
+    sep : str, optional (default: '\t')
+        Separator used in .csv or .txt files. Defaults to tab-delimited format ('\t').
+    header : int or None, optional (default: 0)
+        Row number to use as column names in .csv files. Default is 0 (the first row). 
+        Use `None` if the file does not have a header.
+    normalize : bool, optional (default: True)
+        If True, the features in `v` will be normalized using `StandardScaler`.
+
+    Returns:
+    --------
+    data_x : np.ndarray
+        The treatment variable(s) extracted from the file, reshaped to (-1, 1).
+    data_y : np.ndarray
+        The outcome variable(s) extracted from the file, reshaped to (-1, 1).
+    data_v : np.ndarray
+        Covariates extracted from the file. Normalized if `normalize=True`.
+
+    Notes:
+    ------
+    - Supported file formats:
+        - `.npz`: Numpy compressed files with keys `x`, `y`, and `v`.
+        - `.csv`: Comma-separated value files with treatment, outcome, and covariates as columns.
+        - `.txt`: Tab- or other character-delimited text files with similar structure to .csv.
+    - The input file must exist at the specified `path`.
+    - The first column is assumed to be the treatment variable (`x`).
+    - The second column is assumed to be the outcome variable (`y`).
+    - Remaining columns are assumed to be covariates (`v`).
+
+    Example:
+    --------
+    # Example for .csv input
+    data_x, data_y, data_v = parse_file("data.csv", sep=',', header=0, normalize=True)
+    
+    # Example for .npz input
+    data_x, data_y, data_v = parse_file("data.npz", normalize=False)
+    """
     assert os.path.exists(path)
     if path[-3:] == 'npz':
         data = np.load(path)
