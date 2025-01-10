@@ -11,7 +11,7 @@ setuptools.setup(
     url="https://github.com/SUwonglab/CausalBGM",
     packages=setuptools.find_packages(),
     install_requires=[
-   'tensorflow==2.10.0',
+   'tensorflow',
    'pyyaml',
    'scikit-learn',
    'pandas',
