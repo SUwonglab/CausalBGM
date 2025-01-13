@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="CausalBGM", 
-    version="0.1.2",
+    version="0.1.3",
     author="Qiao Liu",
     author_email="liuqiao@stanford.edu",
     description="CausalBGM: An AI-powered Bayesian generative modeling approach for causal inference in observational studies",
@@ -11,6 +11,7 @@ setuptools.setup(
     url="https://github.com/SUwonglab/CausalBGM",
     packages=setuptools.find_packages(),
     install_requires=[
+   'numpy==1.24.2',
    'tensorflow==2.10.0',
    'tensorflow-probability==0.18.0',
    'pyyaml',
