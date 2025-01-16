@@ -42,9 +42,9 @@ Create a `CausalBGM/data` folder and uncompress the dataset in the `CausalBGM/da
 
 ## Main Reference
 
-If you find CausalBGM useful for your work, please consider citing our [paper](https://arxiv.org/abs/2212.05925):
+If you find CausalBGM useful for your work, please consider citing our [paper](https://arxiv.org/abs/2501.00755):
 
-Qiao Liu and Wing Hung Wong. An AI-powered Bayesian generative modeling approach for causal inference in observational studies [J]. arXiv preprint arXiv:2212.05925, 2025.
+Qiao Liu and Wing Hung Wong. An AI-powered Bayesian generative modeling approach for causal inference in observational studies [J]. arXiv preprint arXiv:2501.00755, 2025.
 
 ## Support
 
