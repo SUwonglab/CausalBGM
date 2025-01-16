@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="CausalBGM", 
-    version="0.1.3",
+    version="0.1.4",
     author="Qiao Liu",
     author_email="liuqiao@stanford.edu",
     description="CausalBGM: An AI-powered Bayesian generative modeling approach for causal inference in observational studies",
@@ -17,6 +17,7 @@ setuptools.setup(
    'pyyaml',
    'scikit-learn',
    'pandas',
+   'tqdm',
    'python-dateutil'
     ],
     classifiers=[
@@ -24,7 +25,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.9',
+    python_requires='>=3.7, <3.11',
     entry_points={
     'console_scripts': [
         'causalBGM = BayesGM.cli:main',

@@ -4,7 +4,6 @@ output_dir: '.'
 save_res: True
 save_model: True
 binary_treatment: False
-use_egm_init: True
 use_bnn: True
 
 # Parameters for iterative updating algorithm

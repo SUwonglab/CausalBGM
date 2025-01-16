@@ -11,7 +11,7 @@ def main(args=None):
                         help="Output directory")
     parser.add_argument('-i', '--input', type=str, required=True,
                         help="Input data file must be in csv or txt or npz format")
-    parser.add_argument('--delimiter', type=str, default='\t',
+    parser.add_argument('-t', '--delimiter', type=str, default='\t',
                         help="Delimiter for txt or csv files (default: tab '\\t').")
     parser.add_argument('-d', '--dataset', type=str,default='Mydata',
                         help="Dataset name")
@@ -20,13 +20,13 @@ def main(args=None):
     parser.add_argument('-save_model', default=False, action=argparse.BooleanOptionalAction,
                         help="whether to save model.")
     parser.add_argument('-save_res', default=True, action=argparse.BooleanOptionalAction,
-                        help="whether to save intermediate results.")
+                        help="Whether to save intermediate results.")
     parser.add_argument('-B', '--binary_treatment', default=True, action=argparse.BooleanOptionalAction,
-                        help="whether use binary treatment setting.")
+                        help="Whether use binary treatment setting.")
     parser.add_argument('--use_egm_init', default=True, action=argparse.BooleanOptionalAction,
-                        help="whether use EGM initialization.")
+                        help="Whether use EGM initialization.")
     parser.add_argument('--use_bnn', default=True, action=argparse.BooleanOptionalAction,
-                        help="whether use Bayesian neural nets.")
+                        help="Whether use Bayesian neural nets.")
 
     # Parameters for iterative updating algorithm
     parser.add_argument('-Z', '--z_dims', type=int, nargs='+', default=[3,3,6,6],
@@ -50,7 +50,7 @@ def main(args=None):
 
     # Parameters for EGM initialization
     parser.add_argument('--kl_weight', type=float, default=0.0001,
-                        help="coefficient for KL divergence term in BNNs (default: 0.0001).")
+                        help="Coefficient for KL divergence term in BNNs (default: 0.0001).")
     parser.add_argument('--lr', type=float, default=0.0001,
                         help="Learning rate for EGM initialization (default: 0.0002).")
     parser.add_argument('--g_d_freq', type=int, default=5,
@@ -73,17 +73,19 @@ def main(args=None):
                         help="Number of epochs in iterative updating algorithm (default: 100).")
     parser.add_argument('-M', '--n_mcmc', type=int, default=3000,
                         help="MCMC sample size (default: 3000).")
+    parser.add_argument('-q', '--q_sd', type=float, default=1.,
+                        help="Standard deviation for proposal distribution in MCMC, a negative q_sd denotes adaptive MCMC (default: 1.0).")
     parser.add_argument('--epochs_per_eval', type=int, default=10,
                         help="Number of epochs per evaluation (default: 10).")
     parser.add_argument('--alpha', type=float, default=0.01,
                         help="Significant level (default: 0.01).")
 
-    #Random seed control
+    #Random seed control, this will affect BNN, it is set to None as default
     parser.add_argument('--seed', type=int, default=123,
                         help="Random seed for reproduction (default: 123).")
     args = parser.parse_args()
     params = vars(args)
-    data = parse_file(args.input)
+    data = parse_file(args.input, sep=params['delimiter'])
     params['v_dim'] = data[-1].shape[1]
 
     # Instantiate a CausalBGM model
@@ -109,13 +111,13 @@ def main(args=None):
     #   causal_pre: Estimated causal effects (ADRF for continuous treatment) with shape (len(x_values),)
     #   pos_intervals: Posterior intervals for the estimated causal effects with shape (len(x_values), 2)
     if params['binary_treatment']:
-        causal_pre, pos_intervals = model.predict(data=data, alpha=params['alpha'], n_mcmc=params['n_mcmc'], q_sd=1.0)
+        causal_pre, pos_intervals = model.predict(data=data, alpha=params['alpha'], n_mcmc=params['n_mcmc'], q_sd=params['q_sd'])
     else:
-        causal_pre, pos_intervals = model.predict(data=data, alpha=params['alpha'], n_mcmc=params['n_mcmc'], x_values=params['x_values'], q_sd=1.0)
+        causal_pre, pos_intervals = model.predict(data=data, alpha=params['alpha'], n_mcmc=params['n_mcmc'], x_values=params['x_values'], q_sd=params['q_sd'])
 
     # Save results to 'save_dir'
     save_data('{}/causal_effect_point_estimate.{}'.format(model.save_dir, params['save_format']), causal_pre)
-    save_data('{}/causal_effect_poterior_interval.{}'.format(model.save_dir, params['save_format']), pos_intervals)
+    save_data('{}/causal_effect_posterior_interval.{}'.format(model.save_dir, params['save_format']), pos_intervals)
 
 if __name__ == "__main__":
-   main()
+    main()

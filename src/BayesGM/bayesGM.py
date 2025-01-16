@@ -5,7 +5,8 @@ import copy
 from .util import Gaussian_sampler, save_data
 import dateutil.tz
 import datetime
-import os, time
+import os
+from tqdm import tqdm
 
 class CausalBGM(object):
     def __init__(self, params, timestamp=None, random_seed=None):
@@ -100,7 +101,7 @@ class CausalBGM(object):
             print(self.f_net.summary())    
             print(self.h_net.summary()) 
 
-    #update network for covariates V
+    # Update generative model for covariates V
     @tf.function
     def update_g_net(self, data_z, data_v, eps=1e-6):
         with tf.GradientTape() as gen_tape:
@@ -127,7 +128,7 @@ class CausalBGM(object):
         self.g_optimizer.apply_gradients(zip(g_gradients, self.g_net.trainable_variables))
         return loss_v, loss_mse
     
-    #update network for treatment X
+    # Update generative model for treatment X
     @tf.function
     def update_h_net(self, data_z, data_x, eps=1e-6):
         with tf.GradientTape() as gen_tape:
@@ -161,7 +162,7 @@ class CausalBGM(object):
         self.h_optimizer.apply_gradients(zip(h_gradients, self.h_net.trainable_variables))
         return loss_x, loss
     
-    #update network for outcome Y
+    # Update generative model for outcome Y
     @tf.function
     def update_f_net(self, data_z, data_x, data_y, eps=1e-6):
         with tf.GradientTape() as gen_tape:
@@ -190,7 +191,7 @@ class CausalBGM(object):
         self.f_optimizer.apply_gradients(zip(f_gradients, self.f_net.trainable_variables))
         return loss_y, loss_mse
     
-    # update posterior of latent variables Z
+    # Update posterior of latent variables Z
     @tf.function
     def update_latent_variable_sgd(self, data_x, data_y, data_v, data_z, eps=1e-6):
         with tf.GradientTape() as tape:
@@ -243,9 +244,9 @@ class CausalBGM(object):
             loss_postrior_z = loss_pv_z + loss_px_z + loss_py_zx + loss_prior_z
             #loss_postrior_z = loss_postrior_z/self.params['v_dim']
 
-        # calculate the gradients
+        # Calculate the gradients
         posterior_gradients = tape.gradient(loss_postrior_z, [data_z])
-        # apply the gradients to the optimizer
+        # Apply the gradients to the optimizer
         self.posterior_optimizer.apply_gradients(zip(posterior_gradients, [data_z]))
         return loss_postrior_z
     
@@ -263,7 +264,7 @@ class CausalBGM(object):
             data_dz = self.dz_net(data_z)
             dz_loss = -tf.reduce_mean(data_dz) + tf.reduce_mean(data_dz_)
 
-            #gradient penalty 
+            # Calculate gradient penalty 
             grad_z = gp_tape.gradient(data_dz_hat, data_z_hat)
             grad_norm_z = tf.sqrt(tf.reduce_sum(tf.square(grad_z), axis=1))
             gpz_loss = tf.reduce_mean(tf.square(grad_norm_z - 1.0))
@@ -327,16 +328,20 @@ class CausalBGM(object):
 
     def egm_init(self, data, n_iter=10000, batch_size=32, batches_per_eval=500, verbose=1):
         data_x, data_y, data_v = data
+        
+        # Set the EGM initialization indicator to be True
+        self.params['use_egm_init'] = True
+        
         print('EGM Initialization Starts ...')
         for batch_iter in range(n_iter+1):
-            # update model parameters of Discriminator
+            # Update model parameters of Discriminator
             for _ in range(self.params['g_d_freq']):
                 batch_idx = np.random.choice(len(data_x), batch_size, replace=False)
                 batch_z = self.z_sampler.get_batch(batch_size)
                 batch_v = data_v[batch_idx,:]
                 dz_loss, d_loss = self.train_disc_step(batch_z, batch_v)
 
-            # update model parameters of G, H, F with SGD
+            # Update model parameters of G, H, F with SGD
             batch_z = self.z_sampler.get_batch(batch_size)
             batch_idx = np.random.choice(len(data_x), batch_size, replace=False)
             batch_x = data_x[batch_idx,:]
@@ -369,50 +374,56 @@ class CausalBGM(object):
             f_params.write(str(self.params))
             f_params.close()
         
-        if self.params['use_egm_init']:
+        if 'use_egm_init' in self.params and self.params['use_egm_init']:
+            print('Initialize latent variables Z with e(V)...')
             data_z_init = self.e_net(data_v)
         else:
+            print('Random initialization of latent variables Z...')
             data_z_init = np.random.normal(0, 1, size = (len(data_x), sum(self.params['z_dims']))).astype('float32')
 
         self.data_z = tf.Variable(data_z_init, name="Latent Variable",trainable=True)
         
         best_loss = np.inf
-        t0 = time.time()
         print('Iterative Updating Starts ...')
         for epoch in range(epochs+1):
             sample_idx = np.random.choice(len(data_x), len(data_x), replace=False)
-            for i in range(0,len(data_x) - batch_size + 1,batch_size): ## Skip the incomplete last batch
-                batch_idx = sample_idx[i:i+batch_size]
-                # update model parameters of G, H, F with SGD
-                batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z', trainable=True)
-                batch_x = data_x[batch_idx,:]
-                batch_y = data_y[batch_idx,:]
-                batch_v = data_v[batch_idx,:]
-                loss_v, loss_mse_v = self.update_g_net(batch_z, batch_v)
-                loss_x, loss_mse_x = self.update_h_net(batch_z, batch_x)
-                loss_y, loss_mse_y = self.update_f_net(batch_z, batch_x, batch_y)
+            
+            # Create a progress bar for batches
+            with tqdm(total=len(data_x) // batch_size, desc=f"Epoch {epoch}/{epochs}", unit="batch") as batch_bar:
+                for i in range(0,len(data_x) - batch_size + 1,batch_size): ## Skip the incomplete last batch
+                    batch_idx = sample_idx[i:i+batch_size]
+                    # Update model parameters of G, H, F with SGD
+                    batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z', trainable=True)
+                    batch_x = data_x[batch_idx,:]
+                    batch_y = data_y[batch_idx,:]
+                    batch_v = data_v[batch_idx,:]
+                    loss_v, loss_mse_v = self.update_g_net(batch_z, batch_v)
+                    loss_x, loss_mse_x = self.update_h_net(batch_z, batch_x)
+                    loss_y, loss_mse_y = self.update_f_net(batch_z, batch_x, batch_y)
 
-                # update Z by maximizing a posterior or posterior mean
-                loss_postrior_z = self.update_latent_variable_sgd(batch_x, batch_y, batch_v, batch_z)
-                
-                # update data_z with updated batch_z
-                self.data_z.scatter_nd_update(
-                    indices=tf.expand_dims(batch_idx, axis=1),
-                    updates=batch_z                             
-                )
-                
-            if epoch % epochs_per_eval == 0:
-                loss_contents = (
-                    'Epoch [%d, %.1f]: loss_px_z [%.4f], loss_mse_x [%.4f], loss_py_z [%.4f], '
-                    'loss_mse_y [%.4f], loss_pv_z [%.4f], loss_mse_v [%.4f], loss_postrior_z [%.4f]'
-                    % (epoch, time.time()-t0, loss_x, loss_mse_x, loss_y, loss_mse_y, loss_v, loss_mse_v, loss_postrior_z)
-                )
-                if verbose:
-                    print(loss_contents)
+                    # Update Z by maximizing a posterior or posterior mean
+                    loss_postrior_z = self.update_latent_variable_sgd(batch_x, batch_y, batch_v, batch_z)
+
+                    # Update data_z with updated batch_z
+                    self.data_z.scatter_nd_update(
+                        indices=tf.expand_dims(batch_idx, axis=1),
+                        updates=batch_z                             
+                    )
                     
-                # Evaluate the full training data
+                    # Update the progress bar with the current loss information
+                    loss_contents = (
+                        'loss_px_z: [%.4f], loss_mse_x: [%.4f], loss_py_z: [%.4f], '
+                        'loss_mse_y: [%.4f], loss_pv_z: [%.4f], loss_mse_v: [%.4f], loss_postrior_z: [%.4f]'
+                        % (loss_x, loss_mse_x, loss_y, loss_mse_y, loss_v, loss_mse_v, loss_postrior_z)
+                    )
+                    batch_bar.set_postfix_str(loss_contents)
+                    batch_bar.update(1)
+            
+            # Evaluate the full training data and print metrics for the epoch
+            if epoch % epochs_per_eval == 0:
                 causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data, data_z = self.data_z)
-                print('Epoch [%d]: MSE_x = %.4f, MSE_y = %.4f, MSE_v = %.4f' % (epoch, mse_x, mse_y, mse_v))
+                if verbose:
+                    print('Epoch [%d/%d]: MSE_x: %.4f, MSE_y: %.4f, MSE_v: %.4f\n' % (epoch, epochs, mse_x, mse_y, mse_v))
 
                 if epoch >= startoff and mse_y < best_loss:
                     best_loss = mse_y
@@ -441,13 +452,13 @@ class CausalBGM(object):
         mse_x = tf.reduce_mean((data_x-data_x_pred)**2)
         mse_y = tf.reduce_mean((data_y-data_y_pred)**2)
         if self.params['binary_treatment']:
-            #individual treatment effect (ITE) && average treatment effect (ATE)
+            # Individual treatment effect (ITE) && average treatment effect (ATE)
             y_pred_pos = self.f_net(tf.concat([data_z0, data_z1, np.ones((len(data_x),1))], axis=-1))[:,:1]
             y_pred_neg = self.f_net(tf.concat([data_z0, data_z1, np.zeros((len(data_x),1))], axis=-1))[:,:1]
             ite_pre = y_pred_pos-y_pred_neg
             return ite_pre, mse_x, mse_y, mse_v
         else:
-            #average dose response function (ADRF)
+            # Average dose response function (ADRF)
             x_values = tf.linspace(self.params['x_min'], self.params['x_max'], nb_intervals)
             
             def compute_dose_response(x):
@@ -549,14 +560,14 @@ class CausalBGM(object):
             ADRF with shape (len(x_values), n_samples) containing all the MCMC samples for each treatment value.
         """
 
-        #extract the components of Z for X,Y
+        # Extract the components of Z for X,Y
         data_z0 = data_posterior_z[:,:,:self.params['z_dims'][0]]
         data_z1 = data_posterior_z[:,:,self.params['z_dims'][0]:sum(self.params['z_dims'][:2])]
         data_z2 = data_posterior_z[:,:,sum(self.params['z_dims'][:2]):sum(self.params['z_dims'][:3])]
 
         if self.params['binary_treatment']:
             
-            #extract mean and sigma^2 of positive samples both with shape (n_keep, n_test)
+            # Extract mean and sigma^2 of positive samples both with shape (n_keep, n_test)
             y_out_pos_all = tf.map_fn(
                 lambda z: self.f_net(tf.concat([z[:, :self.params['z_dims'][0]],
                                                 z[:, self.params['z_dims'][0]:sum(self.params['z_dims'][:2])],
@@ -577,7 +588,7 @@ class CausalBGM(object):
             else:
                 y_pred_pos_all = mu_y_pos_all
             
-            #extract mean and sigma^2 of negative samples both with shape (n_keep, n_test)
+            # Extract mean and sigma^2 of negative samples both with shape (n_keep, n_test)
             y_out_neg_all = tf.map_fn(
                 lambda z: self.f_net(tf.concat([z[:, :self.params['z_dims'][0]],
                                                 z[:, self.params['z_dims'][0]:sum(self.params['z_dims'][:2])],
