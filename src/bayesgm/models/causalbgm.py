@@ -1,8 +1,9 @@
 import tensorflow as tf
-from .model import BaseFullyConnectedNet,Discriminator,BayesianFullyConnectedNet
+from .base import BaseFullyConnectedNet,Discriminator,BayesianFullyConnectedNet
 import numpy as np
 import copy
-from .util import Gaussian_sampler, save_data
+from bayesgm.utils.helpers import Gaussian_sampler
+from bayesgm.utils.data_io import save_data
 import dateutil.tz
 import datetime
 import os
@@ -358,6 +359,7 @@ class CausalBGM(object):
                 if verbose:
                     print(loss_contents)
                 causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data)
+                causal_pre = causal_pre.numpy()
                 if self.params['save_res']:
                     save_data('{}/causal_pre_egm_init_iter-{}.txt'.format(self.save_dir, batch_iter), causal_pre)
         print('EGM Initialization Ends.')
@@ -422,6 +424,8 @@ class CausalBGM(object):
             # Evaluate the full training data and print metrics for the epoch
             if epoch % epochs_per_eval == 0:
                 causal_pre, mse_x, mse_y, mse_v = self.evaluate(data = data, data_z = self.data_z)
+                causal_pre = causal_pre.numpy()
+
                 if verbose:
                     print('Epoch [%d/%d]: MSE_x: %.4f, MSE_y: %.4f, MSE_v: %.4f\n' % (epoch, epochs, mse_x, mse_y, mse_v))
 
@@ -509,6 +513,11 @@ class CausalBGM(object):
                 Posterior intervals for the ADRF with shape (len(x_values), 2), representing [lower bound, upper bound].
         """
         assert 0 < alpha < 1, "The significance level 'alpha' must be greater than 0 and less than 1."
+
+        if self.params['binary_treatment']:
+            # Validate x_values for binary treatment
+            if x_values is None:
+                raise ValueError("For binary treatment, 'x_values' must not be None. Provide a list or a single treatment value.")
 
         if x_values is not None:
             if np.isscalar(x_values):

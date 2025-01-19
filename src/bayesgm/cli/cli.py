@@ -1,7 +1,7 @@
-from .bayesGM import CausalBGM
-from .util import parse_file, save_data
+from bayesgm.models import CausalBGM
+from bayesgm.utils import parse_file, save_data
 import argparse
-from BayesGM import __version__
+from bayesgm import __version__
 
 def main(args=None):
     # General parameters
