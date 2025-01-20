@@ -2,8 +2,8 @@ import yaml
 import argparse
 import numpy as np
 import sys
-from BayesGM import (
-    CausalBGM,  
+from bayesgm.models import CausalBGM
+from bayesgm.datasets import (
     Sim_Hirano_Imbens_sampler, 
     Sim_Sun_sampler, 
     Sim_Colangelo_sampler, 
