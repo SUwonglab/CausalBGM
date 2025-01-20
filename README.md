@@ -15,7 +15,7 @@ CausalBGM is an AI-powered Bayesian generative modeling approach that captures t
 
 CausalBGM adopts a Bayesian iterative approach to update the model parameters and the posterior distribution of latent features until convergence. This framework leverages the power of AI to capture complex dependencies among variables while adhering to the Bayesian principles.
 
-CausalBGM was developed with Python, TensorFlow, and [TensorFlow Probability](https://www.tensorflow.org/probability). Now both [Python](https://pypi.org/project/CausalBGM/) and [R](https://cran.r-project.org/web/packages/RcausalEGM/index.html) package for CausalBGM are available! Besides, we provide a console program to run CausalBGM directly. For more information, checkout the [Document](https://causalbgm.readthedocs.io/).
+CausalBGM was developed with Python3.9, TensorFlow2.10.0, and [TensorFlow Probability](https://www.tensorflow.org/probability). Now both [Python](https://pypi.org/project/CausalBGM/) and [R](https://cran.r-project.org/web/packages/RcausalEGM/index.html) package for CausalBGM are available! Besides, we provide a console program to run CausalBGM directly. For more information, checkout the [Document](https://causalbgm.readthedocs.io/).
 
 ## CausalBGM Main Applications
 
