@@ -21,7 +21,7 @@ CausalBGM was developed with Python3.9, TensorFlow2.10.0, and [TensorFlow Probab
 
 - Point estimate of ATE, ITE, ADRF, CATE.
 
-- Estimate prediction intervals of ATE, ITE, ADRF, CATE with user-specific significant level.
+- Posterior interval estimate of ATE, ITE, ADRF, CATE with user-specific significant level α (alpha).
 
 Checkout application examples in the [Python Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_py.html) and [R Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_r.html).
 
