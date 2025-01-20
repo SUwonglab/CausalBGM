@@ -25,11 +25,38 @@ CausalBGM was developed with Python, TensorFlow, and [TensorFlow Probability](ht
 
 Checkout application examples in the [Python Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_py.html) and [R Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_r.html).
 
-## Latest News
+## Installation
 
-- Jan/2025: The preprint of CausalBGM paper is out on [arXiv](https://arxiv.org/abs/2501.00755).
+See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via `pip install bayesgm` where `bayesgm` is a Python package providing AI-powered Bayesian generative modeling approaches and CausalBGM is one of the method focused on causal inference. 
 
-- Dec/2024: The Python Pypi package (v0.1.0) of CausalBGM is out on [Pypi](https://pypi.org/project/CausalBGM/).
+## Usage
+
+## Example Usage of CausalBGM
+
+```python
+import yaml
+import numpy as np
+import bayesgm
+from bayesgm.models import CausalBGM
+from bayesgm.datasets import Sim_Hirano_Imbens_sampler
+
+params = yaml.safe_load(open('src/configs/Sim_Hirano_Imbens.yaml', 'r'))
+x, y, v = Sim_Hirano_Imbens_sampler(N=20000, v_dim=200).load_all()
+
+# Instantiate a CausalBGM model
+model = CausalBGM(params=params, random_seed=None)
+
+# Perform Encoding Generative Modeling (EGM) initialization
+model.egm_init(data=(x, y, v), n_iter=30000, batches_per_eval=500, verbose=1)
+
+# Train the CausalBGM model with an iterative updating algorithm
+model.fit(data=(x, y, v), epochs=100, epochs_per_eval=10, verbose=1)
+
+# Make predictions using the trained CausalBGM model
+causal_pre, pos_intervals = model.predict(
+  data=(x, y, v), alpha=0.01, n_mcmc=3000, x_values=np.linspace(0, 3, 20), q_sd=1.0
+)
+```
 
 ## Datasets
 
