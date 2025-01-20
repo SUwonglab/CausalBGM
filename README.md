@@ -19,11 +19,9 @@ CausalBGM was developed with Python3.9, TensorFlow2.10.0, and [TensorFlow Probab
 
 ## CausalBGM Main Applications
 
-- Point estimate of ATE, ITE, ADRF, CATE.
+- Point estimate of  ATE, ITE, ADRF, CATE.
 
 - Posterior interval estimate of ATE, ITE, ADRF, CATE with user-specific significant level α (alpha).
-
-Checkout application examples in the [Python Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_py.html) and [R Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_r.html).
 
 ## Installation
 
@@ -37,7 +35,7 @@ where [bayesgm](https://pypi.org/project/bayesgm/) is a Python package providing
 
 ## Usage
 
-A detailed tutorial can be found at our [website](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html). The Python notebook for the detailed tutorial is provided at [here](https://github.com/SUwonglab/CausalBGM/blob/main/docs/source/tutorial_py.ipynb).
+A detailed Python tutorial can be found at our [website](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html). The Python notebook for the detailed tutorial is provided at [here](https://github.com/SUwonglab/CausalBGM/blob/main/docs/source/tutorial_py.ipynb).
 
 ### Example Usage of CausalBGM
 
