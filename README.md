@@ -27,7 +27,7 @@ Checkout application examples in the [Python Tutorial](https://causalegm.readthe
 
 ## Installation
 
-See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via `pip install bayesgm` where `bayesgm` is a Python package providing AI-powered Bayesian generative modeling approaches and CausalBGM is one of the method focused on causal inference. 
+See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via `pip install bayesgm` where `bayesgm` is a Python package providing AI-powered Bayesian generative modeling approaches and CausalBGM is one of the methods focusing on causal inference. 
 
 ## Usage
 
@@ -46,7 +46,7 @@ x, y, v = Sim_Hirano_Imbens_sampler(N=20000, v_dim=200).load_all()
 # Instantiate a CausalBGM model
 model = CausalBGM(params=params, random_seed=None)
 
-# Perform Encoding Generative Modeling (EGM) initialization
+# Perform Encoding Generative Modeling (EGM) initialization (optional but recommended)
 model.egm_init(data=(x, y, v), n_iter=30000, batches_per_eval=500, verbose=1)
 
 # Train the CausalBGM model with an iterative updating algorithm
