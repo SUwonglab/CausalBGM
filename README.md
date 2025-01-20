@@ -27,7 +27,7 @@ Checkout application examples in the [Python Tutorial](https://causalegm.readthe
 
 ## Installation
 
-See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via 
+See detailed installation instructions in our [website](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via 
 
 ```bash
 pip install bayesgm
@@ -39,7 +39,7 @@ where [bayesgm](https://pypi.org/project/bayesgm/) is a Python package providing
 
 ## Example Usage of CausalBGM
 
-A detailed tutorial can be found at [here](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html).
+A detailed tutorial can be found at our [website](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html). The Python notebook is given at [here](https://github.com/SUwonglab/CausalBGM/blob/main/docs/source/tutorial_py.ipynb).
 
 ```python
 import yaml
