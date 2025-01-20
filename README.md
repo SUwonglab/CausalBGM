@@ -1,4 +1,4 @@
-[![PyPI](https://img.shields.io/pypi/v/CausalBGM)](https://pypi.org/project/CausalBGM/)
+[![PyPI](https://img.shields.io/pypi/v/bayesgm)](https://pypi.org/project/bayesgm/)
 [![CRAN](https://www.r-pkg.org/badges/version/RcausalEGM)](https://cran.r-project.org/web/packages/RcausalEGM/index.html)
 [![Anaconda](https://anaconda.org/conda-forge/causalegm/badges/version.svg)](https://anaconda.org/conda-forge/causalegm)
 [![Travis (.org)](https://app.travis-ci.com/kimmo1019/CausalEGM.svg?branch=main)](https://app.travis-ci.com/github/kimmo1019/CausalEGM)
@@ -15,19 +15,19 @@ CausalBGM is an AI-powered Bayesian generative modeling approach that captures t
 
 CausalBGM adopts a Bayesian iterative approach to update the model parameters and the posterior distribution of latent features until convergence. This framework leverages the power of AI to capture complex dependencies among variables while adhering to the Bayesian principles.
 
-CausalBGM was developed with Python, TensorFlow, and [TensorFlow Probability](https://www.tensorflow.org/probability). Now both [Python](https://pypi.org/project/CausalBGM/) and [R](https://cran.r-project.org/web/packages/RcausalEGM/index.html) package for CausalBGM are available! Besides, we provide a console program to run CausalBGM directly. For more information, checkout the [Document](https://causalbgm.readthedocs.io/).
+CausalBGM was developed with Python3.9, TensorFlow2.10.0, and [TensorFlow Probability](https://www.tensorflow.org/probability). Now both [Python](https://pypi.org/project/CausalBGM/) and [R](https://cran.r-project.org/web/packages/RcausalEGM/index.html) package for CausalBGM are available! Besides, we provide a console program to run CausalBGM directly. For more information, checkout the [Document](https://causalbgm.readthedocs.io/).
 
 ## CausalBGM Main Applications
 
 - Point estimate of ATE, ITE, ADRF, CATE.
 
-- Estimate prediction intervals of ATE, ITE, ADRF, CATE with user-specific significant level.
+- Posterior interval estimate of ATE, ITE, ADRF, CATE with user-specific significant level α (alpha).
 
 Checkout application examples in the [Python Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_py.html) and [R Tutorial](https://causalegm.readthedocs.io/en/latest/tutorial_r.html).
 
 ## Installation
 
-See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via 
+See detailed installation instructions in our [website](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via 
 
 ```bash
 pip install bayesgm
@@ -37,7 +37,9 @@ where [bayesgm](https://pypi.org/project/bayesgm/) is a Python package providing
 
 ## Usage
 
-## Example Usage of CausalBGM
+A detailed tutorial can be found at our [website](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html). The Python notebook for the detailed tutorial is provided at [here](https://github.com/SUwonglab/CausalBGM/blob/main/docs/source/tutorial_py.ipynb).
+
+### Example Usage of CausalBGM
 
 ```python
 import yaml
@@ -66,18 +68,20 @@ causal_pre, pos_intervals = model.predict(
 
 ## Datasets
 
-Create a `CausalBGM/data` folder and uncompress the dataset in the `CausalBGM/data` folder.
+`bayesgm` package provides several built-in simulation datasets from `bayesgm.datasets`
+
+For semi-synthetic dataset, create a `CausalBGM/data` folder and uncompress the dataset in the `CausalBGM/data` folder.
 
 - [Twin dataset](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data). Google Drive download [link](https://drive.google.com/file/d/1fKCb-SHNKLsx17fezaHrR2j29T3uD0C2/view?usp=sharing).
 
 - [ACIC 2018 datasets](https://www.synapse.org/#!Synapse:syn11294478/wiki/494269). Google Drive download [link](https://drive.google.com/file/d/1qsYTP8NGh82nFNr736xrMsJxP73gN9OG/view?usp=sharing).
   
 
-## Main Reference
+## Main References
 
-If you find CausalBGM useful for your work, please consider citing our [paper](https://arxiv.org/abs/2501.00755):
+- Qiao Liu and Wing Hung Wong. [An AI-powered Bayesian generative modeling approach for causal inference in observational studies](https://arxiv.org/abs/2501.00755) [J]. arXiv preprint arXiv:2501.00755, 2025.
 
-Qiao Liu and Wing Hung Wong. An AI-powered Bayesian generative modeling approach for causal inference in observational studies [J]. arXiv preprint arXiv:2501.00755, 2025.
+- Qiao Liu, Zhongren Chen, and Wing Hung Wong. [An encoding generative modeling approach to dimension reduction and covariate adjustment in causal inference with observational studies](https://www.pnas.org/doi/10.1073/pnas.2322376121) [J]. PNAS, 121 (23) e2322376121, 2024.
 
 ## Support
 
