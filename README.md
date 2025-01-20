@@ -39,7 +39,7 @@ where [bayesgm](https://pypi.org/project/bayesgm/) is a Python package providing
 
 ## Example Usage of CausalBGM
 
-A detailed tutorial can be found at our [website](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html). The Python notebook is given at [here](https://github.com/SUwonglab/CausalBGM/blob/main/docs/source/tutorial_py.ipynb).
+A detailed tutorial can be found at our [website](https://causalbgm.readthedocs.io/en/latest/tutorial_py.html). The source Python notebook is provided at [here](https://github.com/SUwonglab/CausalBGM/blob/main/docs/source/tutorial_py.ipynb).
 
 ```python
 import yaml
