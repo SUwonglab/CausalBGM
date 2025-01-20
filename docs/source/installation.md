@@ -44,13 +44,15 @@ Training CausalBGM model is faster when accelerated with a GPU (not a must). Bef
 
 ## Install with pip
 
-Install CausalBGM from PyPI using:
+We developed a comprehensive toolbox [bayesgm](https://pypi.org/project/bayesgm/) for Bayesian generative modeling (BayesGM) approaches. CausalBGM is one of the BayesGM methods focusing on causal inference.
+
+Using CausalBGM by installing the BayesGM Python Pypi package with:
 
     ```
-    pip install CausalBGM
+    pip install bayesgm
     ```
 
-If you get a `Permission denied` error, use `pip install CausalBGM --user` instead. Pip will automatically install all the dependent packages, such as TensorFlow.
+If you get a `Permission denied` error, use `pip install bayesgm --user` instead. Pip will automatically install all the dependent packages, such as TensorFlow and TensorFlow-Probability.
 
 Alteratively, CausalBGM can also be installed through GitHub using::
 
@@ -85,7 +87,7 @@ location such that pulled changes are also reflected in the environment.
 3. Install CausalBGM from conda-forge channel:
 
     ```shell
-    conda install -c conda-forge causalbgm
+    conda install -c conda-forge bayesgm
     ```
 
 ## Install R package (RcausalBGM)
