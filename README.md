@@ -66,9 +66,9 @@ causal_pre, pos_intervals = model.predict(
 
 ## Datasets
 
-`bayesgm` package provides several built-in simulation datasets from `bayesgm.datasets`
+`bayesgm` package provides several built-in simulation datasets from `bayesgm.datasets`.
 
-For semi-synthetic dataset, create a `CausalBGM/data` folder and uncompress the dataset in the `CausalBGM/data` folder.
+For semi-synthetic dataset, users need to create a `CausalBGM/data` folder and uncompress the dataset in the `CausalBGM/data` folder.
 
 - [Twin dataset](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data). Google Drive download [link](https://drive.google.com/file/d/1fKCb-SHNKLsx17fezaHrR2j29T3uD0C2/view?usp=sharing).
 
