@@ -27,7 +27,13 @@ Checkout application examples in the [Python Tutorial](https://causalegm.readthe
 
 ## Installation
 
-See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via `pip install bayesgm` where [bayesgm](https://pypi.org/project/bayesgm/) is a Python package providing AI-powered Bayesian generative modeling approaches and CausalBGM is one of the methods focusing on causal inference. 
+See detailed installation instructions in [here](https://causalbgm.readthedocs.io/en/latest/installation.html). Briefly, CausalBGM can be installed via 
+
+```bash
+pip install bayesgm
+```
+
+where [bayesgm](https://pypi.org/project/bayesgm/) is a Python package providing AI-powered Bayesian generative modeling approaches and CausalBGM is one of the methods focusing on causal inference. 
 
 ## Usage
 
