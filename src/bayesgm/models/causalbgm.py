@@ -514,10 +514,10 @@ class CausalBGM(object):
         """
         assert 0 < alpha < 1, "The significance level 'alpha' must be greater than 0 and less than 1."
 
-        if self.params['binary_treatment']:
+        if not self.params['binary_treatment']:
             # Validate x_values for binary treatment
             if x_values is None:
-                raise ValueError("For binary treatment, 'x_values' must not be None. Provide a list or a single treatment value.")
+                raise ValueError("For continous treatment, 'x_values' must not be None. Provide a list or a single treatment value.")
 
         if x_values is not None:
             if np.isscalar(x_values):
