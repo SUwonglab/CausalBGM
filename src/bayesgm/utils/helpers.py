@@ -9,7 +9,6 @@ class Gaussian_sampler(object):
         np.random.seed(1024)
         self.X = np.random.normal(self.mean, self.sd, (self.total_size,len(self.mean)))
         self.X = self.X.astype('float32')
-        self.Y = None
 
     def train(self, batch_size, label = False):
         indx = np.random.randint(low = 0, high = self.total_size, size = batch_size)
@@ -19,7 +18,7 @@ class Gaussian_sampler(object):
         return np.random.normal(self.mean, self.sd, (batch_size,len(self.mean))).astype('float32')
 
     def load_all(self):
-        return self.X, self.Y
+        return self.X
 
         
 def get_ADRF(x_values=None, x_min=None, x_max=None, nb_intervals=None, dataset='Imbens'):
