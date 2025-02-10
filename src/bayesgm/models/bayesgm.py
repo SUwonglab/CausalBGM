@@ -1,6 +1,8 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
+tfm = tfp.mcmc
+
 from .base import BaseFullyConnectedNet,Discriminator,BayesianFullyConnectedNet
 import numpy as np
 import copy
@@ -73,7 +75,7 @@ class BayesGM(object):
                                     g_optimizer = self.g_optimizer,
                                     posterior_optimizer = self.posterior_optimizer)
         
-        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=5)                 
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self.checkpoint_path, max_to_keep=100)                 
 
         if self.ckpt_manager.latest_checkpoint:
             self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
@@ -292,6 +294,8 @@ class BayesGM(object):
                 print('iter [%d/%d]: MSE_x: %.4f\n' % (batch_iter, n_iter, mse_x))
                 mse_x = self.evaluate(data = data, use_x_sd = False)
                 print('iter [%d/%d]: MSE_x no x_sd: %.4f\n' % (batch_iter, n_iter, mse_x))
+        if self.params['save_model']:
+            ckpt_save_path = self.ckpt_manager.save(0)
         print('EGM Initialization Ends.')
 #################################### EGM initialization #############################################
 
@@ -360,13 +364,13 @@ class BayesGM(object):
                         ckpt_save_path = self.ckpt_manager.save(epoch)
                         print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
                         
-                data_z_ = self.e_net(data)
-                data_x__ = self.g_net(data_z_)[:,:self.params['x_dim']]
+                #data_z_ = self.e_net(data)# the same, no meaning
+                #data_x__ = self.g_net(data_z_)[:,:self.params['x_dim']]
                 data_gen_1, sigma_square_x_1 = self.generate(nb_samples=5000)
                 data_gen_12, sigma_square_x_12 = self.generate(nb_samples=5000,use_x_sd=False)
                 np.savez('%s/data_gen_at_%d.npz'%(self.save_dir, epoch),
                         gen1=data_gen_1, gen12=data_gen_12,
-                        z=data_z_, x_rec=data_x__, var1=sigma_square_x_1, var12=sigma_square_x_12
+                        z=self.data_z.numpy(), var1=sigma_square_x_1, var12=sigma_square_x_12
                         )
 
     @tf.function
@@ -451,9 +455,11 @@ class BayesGM(object):
         # Initialize list to store densities
         density_values = []
         print('MCMC Latent Variable Sampling ...')
-        data_posterior_z = self.metropolis_hastings_sampler(data, n_mcmc=n_mcmc, q_sd=q_sd)
+        #data_posterior_z = self.metropolis_hastings_sampler(data, n_mcmc=n_mcmc, q_sd=q_sd)
+        data_posterior_z = self.gradient_mcmc_sampler(data, n_mcmc=n_mcmc, burn_in=500, step_size=0.01, num_leapfrog_steps=5,seed=None)[0]
+
         # Iterate over the data_posterior_z in batches
-        for i in range(0, data_posterior_z.shape[1], bs):
+        for i in range(0, len(data), bs):
             batch_posterior_z = data_posterior_z[:,i:i + bs,:]
             batch_x = data[i:i + bs]
             density_values_batch = self.get_density_from_latent_posterior(batch_x, batch_posterior_z, 
@@ -661,4 +667,66 @@ class BayesGM(object):
         print(f"Final MCMC Acceptance Rate: {acceptance_rate:.4f}")
         #print(f"Final Proposal Standard Deviation (q_sd): {q_sd:.4f}")
         return np.array(samples)
-    
+
+    def gradient_mcmc_sampler(self,
+                             data,
+                             n_mcmc=3000,
+                             burn_in=5000,
+                             step_size=0.01,
+                             num_leapfrog_steps=5,
+                             seed=42):
+        """
+        Runs HMC in parallel for each data point (n independent chains).
+
+        Args:
+            data: np.ndarray, shape (n, p). Each row is one data point.
+            n_mcmc (int): Number of post-burn-in samples to collect.
+            burn_in (int): Number of warm-up (burn-in) steps.
+            step_size (float): Step size for the leapfrog integrator.
+            num_leapfrog_steps (int): Number of leapfrog steps per HMC iteration.
+            seed (int): Random seed for reproducibility.
+
+        Returns:
+            samples:  np.ndarray of shape (n_mcmc, n, q).
+                      For each of the n data points (chains),
+                      we have n_mcmc samples of dimension q.
+            acceptance_rate: float, average acceptance probability.
+        """
+        tf.random.set_seed(seed)
+        n, p = data.shape
+        q = self.params['z_dim']
+
+        # 1) Initialize each chain's latent state: shape (n, q)
+        init_state = tf.random.normal([n, q], mean=0.0, stddev=1.0, seed=seed)
+
+        # 2) Define target log-prob function
+        @tf.function
+        def _target_log_prob_fn(z):
+            # z shape: (n, q). We pass it along with data_x of shape (n, p).
+            # get_log_posterior returns shape (n,).
+            return self.get_log_posterior(z, data)
+
+        # 3) Build the HMC kernel
+        hmc_kernel = tfm.HamiltonianMonteCarlo(
+            target_log_prob_fn=_target_log_prob_fn,
+            step_size=step_size,
+            num_leapfrog_steps=num_leapfrog_steps
+        )
+
+        # 4) Sample from the chain
+        samples, kernel_results = tfm.sample_chain(
+            num_results=n_mcmc,
+            num_burnin_steps=burn_in,
+            current_state=init_state,
+            kernel=hmc_kernel,
+            trace_fn=lambda cs, kr: kr.is_accepted
+        )
+        # samples shape: (n_mcmc, n, q)
+        # is_accepted shape: (n_mcmc, n)
+        
+        # 5) Compute average acceptance probability across all chains/time
+        accept_tensor = tf.stack(kernel_results, axis=0)  # shape (n_mcmc, n)
+        acceptance_rate = tf.reduce_mean(tf.cast(accept_tensor, tf.float32), axis=0)
+
+        # Convert final samples to numpy
+        return samples.numpy(), acceptance_rate.numpy()
