@@ -1,4 +1,6 @@
 import numpy as np
+import scipy.linalg as linalg
+from sklearn.preprocessing import StandardScaler
 
 
 class Gaussian_sampler(object):
@@ -168,3 +170,130 @@ def get_ADRF(x_values=None, x_min=None, x_max=None, nb_intervals=None, dataset='
         true_values = 1.2 * x_values + x_values**3
 
     return true_values
+
+
+def slice_y(y, n_slices=10):
+    """Determine non-overlapping slices based on the target variable, y.
+
+    Parameters
+    ----------
+    y : array_like, shape (n_samples,)
+        The target values (class labels in classification, real numbers
+        in regression).
+
+    n_slices : int (default=10)
+        The number of slices used when calculating the inverse regression
+        curve. Truncated to at most the number of unique values of ``y``.
+
+    Returns
+    -------
+    slice_indicator : ndarray, shape (n_samples,)
+        Index of the slice (from 0 to n_slices) that contains this
+        observation.
+    slice_counts :  ndarray, shape (n_slices,)
+        The number of counts in each slice.
+    """
+    unique_y_vals, counts = np.unique(y, return_counts=True)
+    cumsum_y = np.cumsum(counts)
+
+    # `n_slices` must be less-than or equal to the number of unique values
+    # of `y`.
+    n_y_values = unique_y_vals.shape[0]
+    if n_y_values == 1:
+        raise ValueError("The target only has one unique y value. It does "
+                         "not make sense to fit SIR or SAVE in this case.")
+    elif n_slices >= n_y_values:
+        if n_slices > n_y_values:
+            warnings.warn(
+                "n_slices greater than the number of unique y values. "
+                "Setting n_slices equal to {0}.".format(counts.shape[0]))
+        # each y value gets its own slice. usually the case for classification
+        slice_partition = np.hstack((0, cumsum_y))
+    else:
+        # attempt to put this many observations in each slice.
+        # not always possible since we need to group common y values together
+        n_obs = np.floor(y.shape[0] / n_slices)
+
+        # Loop through the unique y value sums and group
+        # slices together with the goal of 2 <= # in slice <= n_obs
+        # Find index in y unique where slice begins and ends
+        n_samples_seen = 0
+        slice_partition = [0]  # index in y of start of a new slice
+        while n_samples_seen < y.shape[0] - 2:
+            slice_start = np.where(cumsum_y >= n_samples_seen + n_obs)[0]
+            if slice_start.shape[0] == 0:  # this means we've reached the end
+                slice_start = cumsum_y.shape[0] - 1
+            else:
+                slice_start = slice_start[0]
+
+            n_samples_seen = cumsum_y[slice_start]
+            slice_partition.append(n_samples_seen)
+
+    # turn partitions into an indicator
+    slice_indicator = np.ones(y.shape[0], dtype='int64')
+    for j, (start_idx, end_idx) in enumerate(
+            zip(slice_partition, slice_partition[1:])):
+
+        # this just puts any remaining observations in the last slice
+        if j == len(slice_partition) - 2:
+            slice_indicator[start_idx:] = j
+        else:
+            slice_indicator[start_idx:end_idx] = j
+
+    slice_counts = np.bincount(slice_indicator)
+    return slice_indicator, slice_counts
+
+def get_SDR_dim(X, y, n_slices = 10, ratio = 0.8):
+    '''
+    Calculate the SDR dimension of the X.
+    Input:
+        X: array-like, shape (n_samples, n_features)
+        y: array-like, shape (n_samples, 1)
+        n_slices: int, the number of slices used when calculating the inverse regression curve.
+    Output:
+        dim: int, the SDR dimension of X.
+    '''
+    if len(y.shape) == 2:
+        assert y.shape[1] == 1, "The shape of y should be (n_samples, 1)."
+        y = np.squeeze(y)
+    n_samples, n_features = X.shape
+
+    # normalize the data
+    X = X - np.mean(X, axis=0)
+    Q, R = linalg.qr(X, mode='economic')
+    Z = np.sqrt(n_samples) * Q
+    Z = Z[np.argsort(y), :]
+
+    # determine slice indices and counts per slice
+    slices, counts = slice_y(y, n_slices)
+
+    # Sums an array by groups. Groups are assumed to be contiguous by row.
+    inv_idx = np.concatenate(([0], np.diff(slices).nonzero()[0] + 1))
+    Z_sum = np.add.reduceat(Z, inv_idx)
+    # means in each slice (sqrt factor takes care of the weighting)
+    Z_means = Z_sum / np.sqrt(counts.reshape(-1, 1))
+    
+    M = np.dot(Z_means.T, Z_means) / n_samples
+    # eigen-decomposition of slice matrix
+    evals, evecs = linalg.eigh(M)
+    evals = evals[::-1]
+    #n_directions = np.argmax(np.abs(np.diff(evals))) + 1
+    total_sum = np.sum(evals)
+    cumulative_sum = np.cumsum(evals)
+    threshold_index = np.argmax(cumulative_sum >= ratio * total_sum)
+    n_directions = threshold_index + 1
+    return n_directions
+
+def estimate_latent_dims(x,y,v, v_ratio = 0.7, z0_dim=3, min_dim = 1):
+    v = StandardScaler().fit_transform(v)
+    y = StandardScaler().fit_transform(y)
+    z1_dim = get_SDR_dim(v, y, n_slices=10, ratio=0.8)
+    z2_dim = get_SDR_dim(v, x, n_slices=10, ratio=0.8)
+    pca = PCA().fit(v)
+    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
+    threshold_index = np.argmax(cumulative_variance >= v_ratio)
+    total_z_dim = threshold_index + 1
+    z3_dim = total_z_dim - z0_dim - z1_dim - z2_dim
+    if z3_dim<=0:
+        z3_dim = min_dim
+    return [z0_dim, z1_dim, z2_dim, z3_dim]
