@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.linalg as linalg
 from sklearn.preprocessing import StandardScaler
+from sklearn.datasets import make_low_rank_matrix
 
 
 class Gaussian_sampler(object):
@@ -111,6 +112,22 @@ class Swiss_roll_sampler(object):
     def load_all(self):
         return self.X, self.Y
         
+def simulate_regression(n_samples, n_features, n_targets, effective_rank=None, variance=None, random_state=123):
+    np.random.seed(random_state)
+    if effective_rank is None:
+        X = np.random.normal(size=(n_samples, n_features))
+    else:
+        X = 100*make_low_rank_matrix(n_samples=n_samples, n_features=n_features, effective_rank=effective_rank, random_state=random_state)
+
+    X_aug = np.c_[np.ones(n_samples), X]  # n x (p+1) matrix
+    beta = 0.1 * np.random.uniform(low=0.0, high=1.0, size=(1+n_features, n_targets))    # Coefficients for the mean (includes intercept)
+    mu = np.dot(X_aug, beta)
+    if variance is None:
+        variance = 0.01*np.mean(X**2, axis=1)
+    variance = np.tile(variance,(n_targets,1)).T
+    Y = np.random.normal(loc=mu, scale=np.sqrt(variance))
+    return X, Y
+
 def get_ADRF(x_values=None, x_min=None, x_max=None, nb_intervals=None, dataset='Imbens'):
     """
     Compute the values of the Average Dose-Response Function (ADRF).
