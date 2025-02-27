@@ -85,6 +85,48 @@ class BayesianFullyConnectedNet(tf.keras.Model):
         #kl_divergence = sum(self.losses)
         return output#, kl_divergence
     
+class BayesianVariationalNet(tf.keras.Model):
+    """ Bayesian fully connected neural network"""
+    def __init__(self, input_dim, output_dim, model_name, nb_units=[256, 256, 256]):
+        super(BayesianVariationalNet, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.model_name = model_name
+        self.nb_units = nb_units
+        self.all_layers = []
+        
+        self.norm_layer = tf.keras.layers.BatchNormalization()
+        # Define Bayesian layers for each fully connected layer
+        for i in range(len(nb_units)):
+            #units = self.output_dim if i == len(nb_units) else self.nb_units[i]
+            bayesian_layer = tfp.layers.DenseFlipout(
+                units=self.nb_units[i],
+                activation=None
+            )
+            self.all_layers.append(bayesian_layer)
+        self.mean_layer = tfp.layers.DenseFlipout(
+                units=self.output_dim,
+                activation=None
+            )
+        self.var_layer = tfp.layers.DenseFlipout(
+                units=self.output_dim,
+                activation=None
+            )    
+            
+    def call(self, inputs, training=True):
+        """ Return the output of the Bayesian network. """
+        x = self.norm_layer(inputs)
+        for i, bayesian_layer in enumerate(self.all_layers):
+            with tf.name_scope("%s_layer_%d" % (self.model_name, i+1)):
+                x = bayesian_layer(x)
+                x = tf.keras.layers.LeakyReLU(alpha=0.2)(x)
+        
+        # Final layer without activation
+        with tf.name_scope("%s_layer_output" % self.model_name):
+            mean = self.mean_layer(x)
+            var = self.var_layer(x)
+        return mean, var
+
 class Discriminator(tf.keras.Model):
     """Discriminator network.
     """

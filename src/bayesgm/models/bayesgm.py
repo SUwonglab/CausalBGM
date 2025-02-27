@@ -3,7 +3,7 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 tfm = tfp.mcmc
 
-from .base import BaseFullyConnectedNet,Discriminator,BayesianFullyConnectedNet
+from .base import BaseFullyConnectedNet,Discriminator,BayesianFullyConnectedNet,BayesianVariationalNet
 import numpy as np
 import copy
 from bayesgm.utils.helpers import Gaussian_sampler
@@ -24,7 +24,7 @@ class BayesGM(object):
             os.environ['TF_DETERMINISTIC_OPS'] = '1'
             tf.config.experimental.enable_op_determinism()
         if self.params['use_bnn']:
-            self.g_net = BayesianFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim']+1, 
+            self.g_net = BayesianVariationalNet(input_dim=params['z_dim'],output_dim = params['x_dim'], 
                                            model_name='g_net', nb_units=params['g_units'])
 #             self.e_net = BayesianFullyConnectedNet(input_dim=params['x_dim'],output_dim = params['z_dim'], 
 #                                             model_name='e_net', nb_units=params['e_units'])
@@ -99,17 +99,15 @@ class BayesGM(object):
     @tf.function
     def update_g_net(self, data_z, data_x, eps=1e-6):
         with tf.GradientTape() as gen_tape:
-            g_net_output = self.g_net(data_z)
-            mu_x = g_net_output[:,:self.params['x_dim']]
+            mu_x, sigma_square_x = self.g_net(data_z)
             if 'sigma_x' in self.params:
-                sigma_square_x = self.params['sigma_x']**2
+                sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
             else:
-                sigma_square_x = tf.nn.softplus(g_net_output[:,-1]) + eps
+                sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
             #loss = -log(p(x|z))
             loss_mse = tf.reduce_mean((data_x - mu_x)**2)
-            loss_x = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
-                    self.params['x_dim'] * tf.math.log(sigma_square_x)/2
-            loss_x = tf.reduce_mean(loss_x)
+            loss_x = tf.reduce_sum(((data_x - mu_x) ** 2) / (2 * sigma_square_x) + 0.5 * tf.math.log(sigma_square_x), axis=1)
+            loss_x = tf.reduce_mean(loss_x)  # Average over batch
             
             if self.params['use_bnn']:
                 loss_kl = sum(self.g_net.losses)
@@ -128,14 +126,13 @@ class BayesGM(object):
         with tf.GradientTape() as tape:
             
             # logp(x|z) for covariate model
-            mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+            mu_x, sigma_square_x = self.g_net(data_z)
             if 'sigma_x' in self.params:
-                sigma_square_x = self.params['sigma_x']**2
+                sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
             else:
-                sigma_square_x = tf.nn.softplus(self.g_net(data_z)[:,-1]) + eps
+                sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
                 
-            loss_px_z = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
-                    self.params['x_dim'] * tf.math.log(sigma_square_x)/2
+            loss_px_z = tf.reduce_sum(((data_x - mu_x) ** 2) / (2 * sigma_square_x) + 0.5 * tf.math.log(sigma_square_x), axis=1)
             loss_px_z = tf.reduce_mean(loss_px_z)
 
             loss_prior_z =  tf.reduce_sum(data_z**2, axis=1)/2
@@ -169,7 +166,7 @@ class BayesGM(object):
                 data_z_hat = data_z*epsilon_z + data_z_*(1-epsilon_z)
                 data_dz_hat = self.dz_net(data_z_hat)
             with tf.GradientTape() as gpx_tape:
-                data_x_ = self.g_net(data_z)[:,:self.params['x_dim']]
+                data_x_, _ = self.g_net(data_z)
                 data_x_hat = data_x*epsilon_x + data_x_*(1-epsilon_x)
                 data_dx_hat = self.dx_net(data_x_hat)
             
@@ -219,13 +216,13 @@ class BayesGM(object):
                 returns various of generator loss functions.
         """  
         with tf.GradientTape(persistent=True) as gen_tape:
-            data_x_ = self.g_net(data_z)[:,:self.params['x_dim']]
-            sigma_square_loss = tf.reduce_mean(tf.square(tf.nn.softplus(self.g_net(data_z)[:,-1])))
+            data_x_, sigma_square_x_ = self.g_net(data_z)
+            sigma_square_loss = tf.reduce_mean(tf.square(tf.nn.softplus(sigma_square_x_)))
             #sigma_square_loss = tf.reduce_mean(tf.square(self.g_net(data_z)[:,-1]))
             data_z_ = self.e_net(data_x)
 
             data_z__= self.e_net(data_x_)
-            data_x__ = self.g_net(data_z_)[:,:self.params['x_dim']]
+            data_x__, _ = self.g_net(data_z_)
             
             data_dx_ = self.dx_net(data_x_)
             data_dz_ = self.dz_net(data_z_)
@@ -281,7 +278,7 @@ class BayesGM(object):
                 if verbose:
                     print(loss_contents)
                 data_z_ = self.e_net(data)
-                data_x__ = self.g_net(data_z_)[:,:self.params['x_dim']]
+                data_x__, _ = self.g_net(data_z_)
                 MSE = tf.reduce_mean((data - data_x__)**2)
                 data_gen_1, sigma_square_x_1 = self.generate(nb_samples=5000)
                 data_gen_12, sigma_square_x_12 = self.generate(nb_samples=5000,use_x_sd=False)
@@ -294,8 +291,8 @@ class BayesGM(object):
                 print('iter [%d/%d]: MSE_x: %.4f\n' % (batch_iter, n_iter, mse_x))
                 mse_x = self.evaluate(data = data, use_x_sd = False)
                 print('iter [%d/%d]: MSE_x no x_sd: %.4f\n' % (batch_iter, n_iter, mse_x))
-        if self.params['save_model']:
-            ckpt_save_path = self.ckpt_manager.save(0)
+                if self.params['save_model']:
+                    ckpt_save_path = self.ckpt_manager.save(batch_iter)
         print('EGM Initialization Ends.')
 #################################### EGM initialization #############################################
 
@@ -316,7 +313,7 @@ class BayesGM(object):
             data_z_init = np.random.normal(0, 1, size = (len(data), self.params['z_dim'])).astype('float32')
 
         self.data_z = tf.Variable(data_z_init, name="Latent Variable",trainable=True)
-        
+
         best_loss = np.inf
         self.history_loss = []
         print('Iterative Updating Starts ...')
@@ -357,35 +354,34 @@ class BayesGM(object):
                 if verbose:
                     print('Epoch [%d/%d]: MSE_x: %.4f\n' % (epoch, epochs, mse_x))
 
-                if epoch >= startoff and mse_x < best_loss:
-                    best_loss = mse_x
-                    self.best_epoch = epoch
-                    if self.params['save_model']:
-                        ckpt_save_path = self.ckpt_manager.save(epoch)
-                        print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
+                #if epoch >= startoff and mse_x < best_loss:
+                #    best_loss = mse_x
+                #    self.best_epoch = epoch
+                if self.params['save_model']:
+                    ckpt_save_path = self.ckpt_manager.save(epoch)
+                    print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
                         
                 #data_z_ = self.e_net(data)# the same, no meaning
                 #data_x__ = self.g_net(data_z_)[:,:self.params['x_dim']]
                 data_gen_1, sigma_square_x_1 = self.generate(nb_samples=5000)
                 data_gen_12, sigma_square_x_12 = self.generate(nb_samples=5000,use_x_sd=False)
-                np.savez('%s/data_gen_at_%d.npz'%(self.save_dir, epoch),
-                        gen1=data_gen_1, gen12=data_gen_12,
-                        z=self.data_z.numpy(), var1=sigma_square_x_1, var12=sigma_square_x_12
-                        )
+                if self.params['save_res']:
+                    np.savez('%s/data_gen_at_%d.npz'%(self.save_dir, epoch),
+                            gen1=data_gen_1, gen12=data_gen_12,
+                            z=self.data_z.numpy(), var1=sigma_square_x_1, var12=sigma_square_x_12
+                            )
 
     @tf.function
     def evaluate(self, data, data_z=None, nb_intervals=200, use_x_sd=True, eps=1e-6):
         if data_z is None:
             data_z = self.e_net(data)
 
-        mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+        mu_x, sigma_square_x = self.g_net(data_z)
         if 'sigma_x' in self.params:
-            sigma_square_x = self.params['sigma_x']**2
+            sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
         else:
-            #explore why can not use a scalar, same size
-            sigma_square_x_scaler = tf.nn.softplus(self.g_net(data_z)[:,-1]) + eps
-            sigma_square_x_expanded = tf.expand_dims(sigma_square_x_scaler, axis=1)
-            sigma_square_x = tf.tile(sigma_square_x_expanded, [1, self.params['x_dim']]) 
+            sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
+
 
         if use_x_sd:
             data_x_pred = tf.random.normal(
@@ -402,13 +398,11 @@ class BayesGM(object):
 
         data_z = np.random.normal(np.zeros(self.params['z_dim']), 1.0, (nb_samples, self.params['z_dim'])).astype('float32')
 
-        mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+        mu_x, sigma_square_x = self.g_net(data_z)
         if 'sigma_x' in self.params:
-            sigma_square_x = self.params['sigma_x']**2
+            sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
         else:
-            sigma_square_x_scaler = tf.nn.softplus(self.g_net(data_z)[:,-1]) + eps
-            sigma_square_x_expanded = tf.expand_dims(sigma_square_x_scaler, axis=1)
-            sigma_square_x = tf.tile(sigma_square_x_expanded, [1, self.params['x_dim']]) 
+            sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
 
         if use_x_sd:
             data_x_gen = tf.random.normal(
@@ -417,6 +411,48 @@ class BayesGM(object):
         else:
             data_x_gen = mu_x
         return data_x_gen, sigma_square_x
+
+    @tf.function
+    def predict_on_posteriors(self, data_posterior_z, eps=1e-6):
+        n_mcmc = tf.shape(data_posterior_z)[0]
+        n_samples = tf.shape(data_posterior_z)[1]
+
+        # Flatten data
+        data_posterior_z_flat = tf.reshape(data_posterior_z, [-1, self.params['z_dim']])  # Flatten: Shape: (n_IS * n_samples, z_dim)
+        mu_x_flat, sigma_square_x_flat = self.g_net(data_posterior_z_flat)  # Output shape: (n_MCMC*n_samples, x_dim)
+
+        if 'sigma_x' in self.params:
+            # Use fixed variance if provided
+            sigma_square_x_flat = tf.fill(tf.shape(mu_x_flat), self.params['sigma_x']**2)
+        else:
+            # Dynamically compute variance for all dimensions
+            sigma_square_x_flat = tf.nn.softplus(sigma_square_x_flat) + eps  # Shape: (n_MCMC*n_samples, x_dim)
+
+        # Correctly reshape mean and variance
+        mu_x = tf.reshape(mu_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  # Shape: (n_MCMC, n_samples, x_dim)
+        sigma_square_x = tf.reshape(sigma_square_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  # Shape: (n_MCMC, n_samples, x_dim)
+
+        data_x_pred = tf.random.normal(
+            shape=tf.shape(mu_x), mean=mu_x, stddev=tf.sqrt(sigma_square_x)
+        )
+        return data_x_pred
+
+    def cond_generate(self, data_x1, ind_x1, n_mcmc=3000, q_sd=1.0, bs=100):
+        assert data_x1.shape[1] == len(ind_x1), "The index length must be consistent with input"
+        # P(z|x1)
+        data_posterior_z = self.metropolis_hastings_sampler(data_x1, ind_x1=ind_x1, n_mcmc=n_mcmc, q_sd=q_sd)
+        
+        # P(x1,x2|z)
+        data_x_pred = []
+        # Iterate over the data_posterior_z in batches
+        for i in range(0, data_posterior_z.shape[1], bs):
+            batch_posterior_z = data_posterior_z[:,i:i + bs,:]
+            data_x_batch_pred = self.predict_on_posteriors(batch_posterior_z)
+            data_x_batch_pred = data_x_batch_pred.numpy()
+            data_x_pred.append(data_x_batch_pred)
+        
+        data_x_pred = np.concatenate(data_x_pred, axis=1)
+        return data_x_pred
 
     # Predict with MCMC sampling
     def predict(self, data, alpha=0.01, n_mcmc=3000, n_IS=3000, x_values=None, q_sd=1.0, sample_y=True, bs=100):
@@ -556,39 +592,45 @@ class BayesGM(object):
         
         log_density_x = tf.squeeze(log_density_x, axis=0)
         return log_density_x
+        
 
     @tf.function
-    def get_log_posterior(self, data_z, data_x, eps=1e-6):
+    def get_log_posterior(self, data_z, data_x, ind_x1=None, eps=1e-6):
         """
         Calculate log posterior.
         data_z: (np.ndarray): Input data with shape (n, q), where q is the dimension of Z.
         data_x: (np.ndarray): Input data with shape (n, q), where p is the dimension of X.
+        ind_x1: Indices of features to extract from mu_x and sigma_square_x (optional).
         return (np.ndarray): Log posterior with shape (n, ).
         """
 
-        mu_x = self.g_net(data_z)[:,:self.params['x_dim']]
+        mu_x, sigma_square_x = self.g_net(data_z)
         if 'sigma_x' in self.params:
-            sigma_square_x = self.params['sigma_x']**2
+            sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
         else:
-            sigma_square_x = tf.nn.softplus(self.g_net(data_z)[:,-1]) + eps
+            sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
 
-        loss_px_z = tf.reduce_sum((data_x - mu_x)**2, axis=1)/(2*sigma_square_x) + \
-                self.params['x_dim'] * tf.math.log(sigma_square_x)/2
+        if ind_x1 is not None:
+            mu_x = tf.gather(mu_x, ind_x1, axis=1)
+            sigma_square_x = tf.gather(sigma_square_x, ind_x1, axis=1)
+    
+        loss_px_z = tf.reduce_sum(((data_x - mu_x) ** 2) / (2 * sigma_square_x) + 0.5 * tf.math.log(sigma_square_x), axis=1)
 
         loss_prior_z =  tf.reduce_sum(data_z**2, axis=1)/2
 
-        loss_postrior_z = loss_prior_z + loss_px_z
+        loss_posterior_z = loss_prior_z + loss_px_z
 
-        log_posterior = -loss_postrior_z
+        log_posterior = -loss_posterior_z
         return log_posterior
 
 
-    def metropolis_hastings_sampler(self, data, initial_q_sd = 1.0, q_sd = None, burn_in = 5000, n_mcmc = 3000, target_acceptance_rate=0.25, tolerance=0.05, adjustment_interval=50, adaptive_sd=None, window_size=100):
+    def metropolis_hastings_sampler(self, data, ind_x1=None, initial_q_sd = 1.0, q_sd = None, burn_in = 5000, n_mcmc = 3000, target_acceptance_rate=0.25, tolerance=0.05, adjustment_interval=50, adaptive_sd=None, window_size=100):
         """
         Samples from the posterior distribution P(Z|X,Y,V) using the Metropolis-Hastings algorithm with adaptive proposal adjustment.
 
         Args:
             data (tuple): Tuple containing data_x, data_y, data_v.
+            ind_x1 (list): Index for the X1 to be conditioned.
             q_sd (float or None): Fixed standard deviation for the proposal distribution. If None, `q_sd` will adapt.
             initial_q_sd (float): Initial standard deviation of the proposal distribution.
             burn_in (int): Number of samples for burn-in, set to 1000 as an initial estimate.
@@ -627,8 +669,8 @@ class BayesGM(object):
             proposed_state = current_state + np.random.normal(0, q_sd, size = (len(data), self.params['z_dim'])).astype('float32')
 
             # Compute the acceptance ratio
-            proposed_log_posterior = self.get_log_posterior(proposed_state, data)
-            current_log_posterior  = self.get_log_posterior(current_state, data)
+            proposed_log_posterior = self.get_log_posterior(proposed_state, data, ind_x1)
+            current_log_posterior  = self.get_log_posterior(current_state, data, ind_x1)
             #acceptance_ratio = np.exp(proposed_log_posterior-current_log_posterior)
             acceptance_ratio = np.exp(np.minimum(proposed_log_posterior - current_log_posterior, 0))
             # Accept or reject the proposed state
@@ -670,16 +712,19 @@ class BayesGM(object):
 
     def gradient_mcmc_sampler(self,
                              data,
+                             ind_x1=None,
+                             kernel='nut',
                              n_mcmc=3000,
                              burn_in=5000,
                              step_size=0.01,
                              num_leapfrog_steps=5,
                              seed=42):
         """
-        Runs HMC in parallel for each data point (n independent chains).
+        Runs HMC or NUTS in parallel for each data point (n independent chains).
 
         Args:
             data: np.ndarray, shape (n, p). Each row is one data point.
+            kernel (str): 'hmc' or 'nut' (NUTS).
             n_mcmc (int): Number of post-burn-in samples to collect.
             burn_in (int): Number of warm-up (burn-in) steps.
             step_size (float): Step size for the leapfrog integrator.
@@ -687,10 +732,8 @@ class BayesGM(object):
             seed (int): Random seed for reproducibility.
 
         Returns:
-            samples:  np.ndarray of shape (n_mcmc, n, q).
-                      For each of the n data points (chains),
-                      we have n_mcmc samples of dimension q.
-            acceptance_rate: float, average acceptance probability.
+            samples: Tensor of shape (n_mcmc, n, q).
+            acceptance_rate: Scalar, average acceptance probability.
         """
         tf.random.set_seed(seed)
         n, p = data.shape
@@ -704,29 +747,48 @@ class BayesGM(object):
         def _target_log_prob_fn(z):
             # z shape: (n, q). We pass it along with data_x of shape (n, p).
             # get_log_posterior returns shape (n,).
-            return self.get_log_posterior(z, data)
+            return self.get_log_posterior(z, data, ind_x1)
 
-        # 3) Build the HMC kernel
-        hmc_kernel = tfm.HamiltonianMonteCarlo(
-            target_log_prob_fn=_target_log_prob_fn,
-            step_size=step_size,
-            num_leapfrog_steps=num_leapfrog_steps
-        )
+        if kernel=='hmc':
+            # 3) Build the HMC kernel
+            hmc_kernel = tfm.HamiltonianMonteCarlo(
+                target_log_prob_fn=_target_log_prob_fn,
+                step_size=step_size,
+                num_leapfrog_steps=num_leapfrog_steps
+            )
 
-        # 4) Sample from the chain
-        samples, kernel_results = tfm.sample_chain(
+            # 4) Sample from the chain
+            samples, kernel_results = tfm.sample_chain(
+                num_results=n_mcmc,
+                num_burnin_steps=burn_in,
+                current_state=init_state,
+                kernel=hmc_kernel,
+                trace_fn=lambda cs, kr: kr.is_accepted
+            )
+            # samples shape: (n_mcmc, n, q)
+            # is_accepted shape: (n_mcmc, n)
+        elif kernel=='nut':
+            nuts_kernel = tfm.NoUTurnSampler(target_log_prob_fn=_target_log_prob_fn,
+                step_size=step_size)
+            # adaptive_kernel = tfm.DualAveragingStepSizeAdaptation(
+            #     nuts_kernel,
+            #     num_adaptation_steps=int(0.8 * burn_in)
+            # )
+
+            samples, kernel_results = tfm.sample_chain(
             num_results=n_mcmc,
             num_burnin_steps=burn_in,
             current_state=init_state,
-            kernel=hmc_kernel,
+            kernel=nuts_kernel,
             trace_fn=lambda cs, kr: kr.is_accepted
-        )
-        # samples shape: (n_mcmc, n, q)
-        # is_accepted shape: (n_mcmc, n)
-        
+            )
+
+        else:
+            raise ValueError("Invalid kernel choice. Use 'hmc' or 'nut'.")
         # 5) Compute average acceptance probability across all chains/time
-        accept_tensor = tf.stack(kernel_results, axis=0)  # shape (n_mcmc, n)
-        acceptance_rate = tf.reduce_mean(tf.cast(accept_tensor, tf.float32), axis=0)
+        acceptance_rate = tf.reduce_mean(tf.cast(kernel_results, tf.float32),axis=0)
+        #accept_tensor = tf.stack(kernel_results, axis=0)  # shape (n_mcmc, n)
+        #acceptance_rate = tf.reduce_mean(tf.cast(accept_tensor, tf.float32), axis=0)
 
         # Convert final samples to numpy
         return samples.numpy(), acceptance_rate.numpy()
