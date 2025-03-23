@@ -128,6 +128,75 @@ def simulate_regression(n_samples, n_features, n_targets, effective_rank=None, v
     Y = np.random.normal(loc=mu, scale=np.sqrt(variance))
     return X, Y
 
+
+def simulate_low_rank_data(n_samples=10000, z_dim=2, x_dim=4, rank=2, sigma_z=False, random_state=123):
+    """
+    Simulate data from a generative process where:
+      - Z ~ N(0, I)
+      - X | Z ~ N(μ(Z), Σ(Z))
+    
+    Two options for Σ(Z):
+      1. Constant covariance:
+            Σ = diag(diag_values) + W W^T,
+         where W is fixed.
+      2. Z-dependent covariance:
+            Σ(z) = diag(diag_values) + (W * z[0]) (W * z[0])^T,
+         so that the low-rank component is scaled by the first element of z.
+    
+    Args:
+        n_samples (int): Number of samples.
+        z_dim (int): Dimension of latent variable Z.
+        x_dim (int): Dimension of observed variable X.
+        rank (int): Rank for the low-rank component.
+        sigma_z (bool): If True, covariance Σ becomes a function of z (using z[0]); 
+                               otherwise, Σ is constant.
+        random_state (int): Seed for reproducibility.
+    
+    Returns:
+        X (np.ndarray): Observed data of shape (n_samples, x_dim).
+        Z (np.ndarray): Latent variables of shape (n_samples, z_dim).
+        (For reference, in the constant case, the marginal of X is 
+         N(b, A A^T + Σ) where A and b define the mean function.)
+    """
+    np.random.seed(random_state)
+
+    # Generate Z ~ N(0, I)
+    Z = np.random.randn(n_samples, z_dim).astype(np.float32) 
+
+    # Set fixed parameters for the simulation
+    # Randomly generate A and b, or choose them to illustrate particular structure.
+    A = np.array([[ 1.0, -0.5],
+                  [ 0.3,  0.8],
+                  [-0.7,  0.2],
+                  [ 0.5,  1.0]])
+    b = np.array([0.0, 0.5, 1.0, 2.0])
+
+    # Compute the mean for X given Z: μ(Z) = A Z + b
+    mu = Z.dot(A.T) + b  # Shape: (n_samples, x_dim)
+
+    W = np.array([[ 1., 0.],
+                  [ 1., 0.],
+                  [ 0., 1.],
+                  [ 0,  1.]])
+    diag_values = np.array([0.2, 0.2, 1., 1.])
+    D = np.diag(diag_values)
+    
+    X = np.zeros((n_samples, x_dim), dtype=np.float32)
+    
+    for i in range(n_samples):
+        if sigma_z:
+            scale_factor = Z[i, 0]
+            W_scaled = W * scale_factor  # Element-wise multiplication
+            Sigma = D + np.dot(W_scaled, W_scaled.T)
+        else:
+            # Use constant covariance: Σ = D + W W^T
+            Sigma = D + np.dot(W, W.T)
+
+        # Sample X_i ~ N(μ_i, Σ)
+        X[i] = np.random.multivariate_normal(mean=mu[i], cov=Sigma)
+    
+    return X, Z
+
 def get_ADRF(x_values=None, x_min=None, x_max=None, nb_intervals=None, dataset='Imbens'):
     """
     Compute the values of the Average Dose-Response Function (ADRF).

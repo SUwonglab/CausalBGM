@@ -5,7 +5,8 @@ from .helpers import (
     GMM_indep_sampler, 
     Swiss_roll_sampler, 
     estimate_latent_dims, 
-    simulate_regression
+    simulate_regression,
+    simulate_low_rank_data
 )
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "GMM_indep_sampler",
     "Swiss_roll_sampler",
     "estimate_latent_dims",
-    "simulate_regression"
+    "simulate_regression",
+    "simulate_low_rank_data"
 ]
 
