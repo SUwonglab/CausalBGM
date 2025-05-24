@@ -57,7 +57,7 @@ model.egm_init(data=(x, y, v), n_iter=30000, batches_per_eval=500, verbose=1)
 # Train the CausalBGM model with an iterative updating algorithm
 model.fit(data=(x, y, v), epochs=100, epochs_per_eval=10, verbose=1)
 
-# Predict both point estimate and posterior interval (uncertainty) using the trained CausalBGM model
+# Provide both point estimate and posterior interval (uncertainty) using the trained CausalBGM model
 causal_pre, pos_intervals = model.predict(
   data=(x, y, v), alpha=0.01, n_mcmc=3000, x_values=np.linspace(0, 3, 20), q_sd=1.0
 )
