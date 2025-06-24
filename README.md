@@ -1,5 +1,4 @@
 [![PyPI](https://img.shields.io/pypi/v/bayesgm)](https://pypi.org/project/bayesgm/)
-[![CRAN](https://www.r-pkg.org/badges/version/RcausalEGM)](https://cran.r-project.org/web/packages/RcausalEGM/index.html)
 [![Anaconda](https://anaconda.org/conda-forge/causalegm/badges/version.svg)](https://anaconda.org/conda-forge/causalegm)
 [![Travis (.org)](https://app.travis-ci.com/kimmo1019/CausalEGM.svg?branch=main)](https://app.travis-ci.com/github/kimmo1019/CausalEGM)
 [![All Platforms](https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/causalegm-feedstock?branchName=main)](https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=18625&branchName=main)
@@ -15,7 +14,7 @@ CausalBGM is an AI-powered Bayesian generative modeling approach that captures t
 
 CausalBGM adopts a Bayesian iterative approach to update the model parameters and the posterior distribution of latent features until convergence. This framework leverages the power of AI to capture complex dependencies among variables while adhering to the Bayesian principles.
 
-CausalBGM was developed with Python3.9, TensorFlow2.10, and [TensorFlow Probability](https://www.tensorflow.org/probability). Now both [Python](https://pypi.org/project/CausalBGM/) and [R](https://cran.r-project.org/web/packages/RcausalEGM/index.html) packages for CausalBGM are available! Besides, we provide a console program to run CausalBGM directly. For more information, checkout the [Document](https://causalbgm.readthedocs.io/).
+CausalBGM was developed with Python3.9, TensorFlow2.10, and [TensorFlow Probability](https://www.tensorflow.org/probability). Now [Python](https://pypi.org/project/CausalBGM/) PyPI package for CausalBGM is available. Besides, we provide a console program to run CausalBGM directly. R package for CausalBGM is coming soon! For more information, checkout the [Document](https://causalbgm.readthedocs.io/).
 
 ## CausalBGM Main Applications
 
@@ -58,7 +57,7 @@ model.egm_init(data=(x, y, v), n_iter=30000, batches_per_eval=500, verbose=1)
 # Train the CausalBGM model with an iterative updating algorithm
 model.fit(data=(x, y, v), epochs=100, epochs_per_eval=10, verbose=1)
 
-# Make predictions using the trained CausalBGM model
+# Provide both point estimate and posterior interval (uncertainty) using the trained CausalBGM model
 causal_pre, pos_intervals = model.predict(
   data=(x, y, v), alpha=0.01, n_mcmc=3000, x_values=np.linspace(0, 3, 20), q_sd=1.0
 )
