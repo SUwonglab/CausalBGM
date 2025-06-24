@@ -174,11 +174,11 @@ def simulate_low_rank_data(n_samples=10000, z_dim=2, x_dim=4, rank=2, sigma_z=Fa
     # Compute the mean for X given Z: μ(Z) = A Z + b
     mu = Z.dot(A.T) + b  # Shape: (n_samples, x_dim)
 
-    W = np.array([[ 1., 0.],
-                  [ 1., 0.],
-                  [ 0., 1.],
-                  [ 0,  1.]])
-    diag_values = np.array([0.2, 0.2, 1., 1.])
+    W = np.array([[ 0.25, 0.],
+                  [ 0.25, 0.],
+                  [ 0., 0.25],
+                  [ 0., 0.25]])
+    diag_values = np.array([0.1, 0.1, 0.2, 0.2])
     D = np.diag(diag_values)
     
     X = np.zeros((n_samples, x_dim), dtype=np.float32)
@@ -187,7 +187,7 @@ def simulate_low_rank_data(n_samples=10000, z_dim=2, x_dim=4, rank=2, sigma_z=Fa
         if sigma_z:
             scale_factor = Z[i, 0]
             W_scaled = W * scale_factor  # Element-wise multiplication
-            Sigma = D + np.dot(W_scaled, W_scaled.T)
+            Sigma = D * scale_factor**2 + np.dot(W_scaled, W_scaled.T)
         else:
             # Use constant covariance: Σ = D + W W^T
             Sigma = D + np.dot(W, W.T)
