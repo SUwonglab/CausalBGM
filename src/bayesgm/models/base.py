@@ -151,10 +151,39 @@ class BayesianVariationalLowRankNet(tf.keras.Model):
         self.all_layers = []
         self.norm_layer = tf.keras.layers.BatchNormalization()
 
+        def custom_prior_fn(dtype, shape, name, trainable, add_variable_fn):
+            """
+            Custom prior function that returns an Independent Normal distribution
+            with mean 0 and a small standard deviation (0.1).
+
+            Args:
+                dtype: The data type for the distribution parameters.
+                shape: The shape of the weight tensor.
+                name: A name for the variable (unused here).
+                trainable: Whether the variables are trainable (unused here).
+                add_variable_fn: A function for adding variables (unused here).
+
+            Returns:
+                A tfp.distributions.Independent distribution representing the prior.
+            """
+            # Create a Normal distribution with mean 0 and scale 0.1
+            prior_dist = tfp.distributions.Normal(
+                loc=tf.zeros(shape, dtype=dtype),
+                scale=tf.ones(shape, dtype=dtype)
+            )
+            # Wrap it as an Independent distribution, with the appropriate number of reinterpreted dimensions
+            return tfp.distributions.Independent(prior_dist, reinterpreted_batch_ndims=len(shape))
+        
+        kernel_prior_fn = lambda dtype, shape, name, trainable, add_variable_fn: tfp.distributions.Independent(
+            tfp.distributions.Normal(loc=tf.zeros(shape, dtype=dtype), scale=0.1),
+            reinterpreted_batch_ndims=len(shape)
+        )
+
         # Define Bayesian layers for each fully connected layer
         for i in range(len(nb_units)):
             bayesian_layer = tfp.layers.DenseFlipout(
                 units=self.nb_units[i],
+                kernel_prior_fn=kernel_prior_fn,
                 activation=None
             )
             self.all_layers.append(bayesian_layer)
@@ -162,18 +191,21 @@ class BayesianVariationalLowRankNet(tf.keras.Model):
         # Output layers
         self.mean_layer = tfp.layers.DenseFlipout(
             units=self.output_dim,
+            kernel_prior_fn=kernel_prior_fn,
             activation=None
         )
 
         # Variance layer: Outputs per-dimension variance
         self.var_layer = tfp.layers.DenseFlipout(
             units=self.output_dim,  # Per-dimension variance
+            kernel_prior_fn=kernel_prior_fn,
             activation=None
         )
 
         # Low-rank factor layer: Outputs (batch, output_dim, rank)
         self.low_rank_layer = tfp.layers.DenseFlipout(
             units=self.output_dim * self.rank,
+            kernel_prior_fn=kernel_prior_fn,
             activation=None
         )
 
