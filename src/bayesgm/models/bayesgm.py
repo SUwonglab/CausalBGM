@@ -1064,7 +1064,9 @@ class BayesGM_v2(object):
         with tf.GradientTape(persistent=True) as gen_tape:
             data_x_, var_diag, full_cov_matrix, U = self.g_net(data_z)
 
-            reg_loss = tf.reduce_mean(tf.square(var_diag)) + tf.reduce_mean(tf.square(U))
+            #reg_loss = tf.reduce_mean(tf.square(var_diag)) + tf.reduce_mean(tf.square(U))
+            #reg_loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(full_cov_matrix)-3.)))
+            reg_loss = 0
 
             data_z_ = self.e_net(data_x)
 
@@ -1080,7 +1082,7 @@ class BayesGM_v2(object):
             g_loss_adv = tf.reduce_mean((0.9*tf.ones_like(data_dx_)  - data_dx_)**2)
             e_loss_adv = tf.reduce_mean((0.9*tf.ones_like(data_dz_)  - data_dz_)**2)
 
-            g_e_loss = g_loss_adv + e_loss_adv + 10 * (l2_loss_x + l2_loss_z) + 10 * reg_loss
+            g_e_loss = g_loss_adv + e_loss_adv + 10 * (l2_loss_x + l2_loss_z) #+ self.params['alpha'] * reg_loss
                 
         # Calculate the gradients for generators and discriminators
         g_e_gradients = gen_tape.gradient(g_e_loss, self.g_net.trainable_variables+self.e_net.trainable_variables)
@@ -1325,10 +1327,10 @@ class BayesGM_v2(object):
 
     def metropolis_hastings_sampler(self, data, ind_x1=None, initial_q_sd = 1.0, q_sd = None, burn_in = 5000, n_mcmc = 3000, target_acceptance_rate=0.25, tolerance=0.05, adjustment_interval=50, adaptive_sd=None, window_size=100):
         """
-        Samples from the posterior distribution P(Z|X,Y,V) using the Metropolis-Hastings algorithm with adaptive proposal adjustment.
+        Samples from the posterior distribution P(Z|X) using the Metropolis-Hastings algorithm with adaptive proposal adjustment.
 
         Args:
-            data (tuple): Tuple containing data_x, data_y, data_v.
+            data: observed data with shape (n, p).
             ind_x1 (list): Index for the X1 to be conditioned.
             q_sd (float or None): Fixed standard deviation for the proposal distribution. If None, `q_sd` will adapt.
             initial_q_sd (float): Initial standard deviation of the proposal distribution.
@@ -1483,6 +1485,23 @@ class BayesGM_v2(object):
             current_state=init_state,
             kernel=nuts_kernel,
             trace_fn=lambda cs, kr: kr.is_accepted
+            )
+        elif kernel=='mh':
+            # For MH, step_size will be used as the standard deviation of the normal proposal
+            def proposal_fn(z):
+                return tf.random.normal(shape=tf.shape(z), mean=0.0, stddev=step_size) + z
+            
+            mh_kernel = tfm.RandomWalkMetropolis(
+                target_log_prob_fn=_target_log_prob_fn,
+                new_state_fn=proposal_fn
+            )
+            
+            samples, kernel_results = tfm.sample_chain(
+                num_results=n_mcmc,
+                num_burnin_steps=burn_in,
+                current_state=init_state,
+                kernel=mh_kernel,
+                trace_fn=lambda cs, kr: kr.is_accepted
             )
 
         else:
