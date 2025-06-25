@@ -1,0 +1,24 @@
+# General parameters
+dataset: Sim_low_rank
+output_dir: '.'
+save_res: True
+save_model: True
+use_bnn: True
+
+# Parameters for iterative updating algorithm
+z_dim: 2
+x_dim: 4
+lr_theta: 0.005
+lr_z: 0.005
+g_units: [64,64,64,64,64]
+
+# Parameters for EGM initialization
+kl_weight: 0.0001
+lr: 0.001
+g_d_freq: 1
+use_z_rec: True
+alpha: 0.1
+gamma: 0
+e_units: [64,64,64,64,64]
+dz_units: [64,32,8]
+dx_units: [64,32,8]
