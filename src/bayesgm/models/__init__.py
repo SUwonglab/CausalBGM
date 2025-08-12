@@ -1,4 +1,4 @@
-from .base import BaseFullyConnectedNet, BayesianFullyConnectedNet, Discriminator
+from .base import BaseFullyConnectedNet, FCNVariationalNet, BayesianFullyConnectedNet, Discriminator
 from .causalbgm import CausalBGM
 from .bayesgm import BayesGM, BayesGM_v2
 

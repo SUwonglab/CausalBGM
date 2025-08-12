@@ -197,6 +197,41 @@ def simulate_low_rank_data(n_samples=10000, z_dim=2, x_dim=4, rank=2, sigma_z=Fa
     
     return X, Z
 
+def simulate_heteroskedastic_data(n=1000, d=5, seed=42):
+    np.random.seed(seed)
+    X = np.random.randn(n, d)
+    X1 = X[:, 0]
+    X2 = X[:, 1]
+
+    # Define heteroskedastic noise
+    sigma = np.where(
+        X2 < -2, 0.1,
+        np.where(X2 > 2, 2.0, 0.5 + 0.5 * np.sin(2 * np.pi * X2))
+    )
+
+    epsilon = np.random.randn(n) * sigma
+    Y = X1 + epsilon
+    return X, Y, sigma
+
+def simulate_z_hetero(n=20000, k=2, d=5, seed=42):
+    np.random.seed(seed)
+
+    Z = np.random.randn(n, k)
+
+    # Low-rank X from latent Z
+    A = np.random.randn(d, k)
+    X = 0.2*Z @ A.T + 0.1 * np.random.randn(n, d)
+
+    # Define nonlinear mean and heteroskedastic std
+    w = np.random.randn(k)
+    u = np.random.randn(k)
+
+    mean_Y = np.sin(Z @ w)
+    std_Y = 0.1 + 0.5 * 1 / (1 + np.exp(-(Z @ u)))
+
+    Y = mean_Y + std_Y * np.random.randn(n)
+    return X, Y
+
 def get_ADRF(x_values=None, x_min=None, x_max=None, nb_intervals=None, dataset='Imbens'):
     """
     Compute the values of the Average Dose-Response Function (ADRF).
