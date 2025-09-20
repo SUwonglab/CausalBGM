@@ -6,7 +6,9 @@ from .helpers import (
     Swiss_roll_sampler, 
     estimate_latent_dims, 
     simulate_regression,
-    simulate_low_rank_data
+    simulate_low_rank_data,
+    simulate_heteroskedastic_data,
+    simulate_z_hetero
 )
 
 __all__ = [
@@ -18,6 +20,8 @@ __all__ = [
     "Swiss_roll_sampler",
     "estimate_latent_dims",
     "simulate_regression",
-    "simulate_low_rank_data"
+    "simulate_low_rank_data",
+    "simulate_heteroskedastic_data",
+    "simulate_z_hetero"
 ]
 

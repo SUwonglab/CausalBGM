@@ -8,7 +8,9 @@ from .base import (
     Discriminator,
     BayesianFullyConnectedNet,
     BayesianVariationalNet,
+    FCNVariationalNet,
     BayesianVariationalLowRankNet,
+    FCNLowRankNet,
 )
 import numpy as np
 import copy
@@ -32,10 +34,8 @@ class BayesGM(object):
         if self.params['use_bnn']:
             self.g_net = BayesianVariationalNet(input_dim=params['z_dim'],output_dim = params['x_dim'], 
                                            model_name='g_net', nb_units=params['g_units'])
-#             self.e_net = BayesianFullyConnectedNet(input_dim=params['x_dim'],output_dim = params['z_dim'], 
-#                                             model_name='e_net', nb_units=params['e_units'])
         else:
-            self.g_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim']+1, 
+            self.g_net = FCNVariationalNet(input_dim=params['z_dim'],output_dim = params['x_dim'], 
                                            model_name='g_net', nb_units=params['g_units'])
 
         self.e_net = BaseFullyConnectedNet(input_dim=params['x_dim'],output_dim = params['z_dim'], 
@@ -103,13 +103,9 @@ class BayesGM(object):
 
     # Update generative model for X
     @tf.function
-    def update_g_net(self, data_z, data_x, eps=1e-6):
+    def update_g_net(self, data_z, data_x):
         with tf.GradientTape() as gen_tape:
             mu_x, sigma_square_x = self.g_net(data_z)
-            if 'sigma_x' in self.params:
-                sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
-            else:
-                sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
             #loss = -log(p(x|z))
             loss_mse = tf.reduce_mean((data_x - mu_x)**2)
             loss_x = tf.reduce_sum(((data_x - mu_x) ** 2) / (2 * sigma_square_x) + 0.5 * tf.math.log(sigma_square_x), axis=1)
@@ -128,16 +124,11 @@ class BayesGM(object):
         
     # Update posterior of latent variables Z
     @tf.function
-    def update_latent_variable_sgd(self, data_z, data_x, eps=1e-6):
+    def update_latent_variable_sgd(self, data_z, data_x):
         with tf.GradientTape() as tape:
             
             # logp(x|z) for covariate model
             mu_x, sigma_square_x = self.g_net(data_z)
-            if 'sigma_x' in self.params:
-                sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
-            else:
-                sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
-                
             loss_px_z = tf.reduce_sum(((data_x - mu_x) ** 2) / (2 * sigma_square_x) + 0.5 * tf.math.log(sigma_square_x), axis=1)
             loss_px_z = tf.reduce_mean(loss_px_z)
 
@@ -172,7 +163,9 @@ class BayesGM(object):
                 data_z_hat = data_z*epsilon_z + data_z_*(1-epsilon_z)
                 data_dz_hat = self.dz_net(data_z_hat)
             with tf.GradientTape() as gpx_tape:
-                data_x_, _ = self.g_net(data_z)
+                mu_x_, sigma_square_x_ = self.g_net(data_z)
+                data_x_ = self.g_net.reparameterize(mu_x_, sigma_square_x_)
+                #shall I use reparameterize here?
                 data_x_hat = data_x*epsilon_x + data_x_*(1-epsilon_x)
                 data_dx_hat = self.dx_net(data_x_hat)
             
@@ -222,13 +215,15 @@ class BayesGM(object):
                 returns various of generator loss functions.
         """  
         with tf.GradientTape(persistent=True) as gen_tape:
-            data_x_, sigma_square_x_ = self.g_net(data_z)
+            mu_x_, sigma_square_x_ = self.g_net(data_z)
+            data_x_ = self.g_net.reparameterize(mu_x_, sigma_square_x_)
             sigma_square_loss = tf.reduce_mean(tf.square(tf.nn.softplus(sigma_square_x_)))
             #sigma_square_loss = tf.reduce_mean(tf.square(self.g_net(data_z)[:,-1]))
             data_z_ = self.e_net(data_x)
 
             data_z__= self.e_net(data_x_)
-            data_x__, _ = self.g_net(data_z_)
+            mu_x__, sigma_square_x__ = self.g_net(data_z_)
+            data_x__ = self.g_net.reparameterize(mu_x__, sigma_square_x__)
             
             data_dx_ = self.dx_net(data_x_)
             data_dz_ = self.dz_net(data_z_)
@@ -241,7 +236,7 @@ class BayesGM(object):
             g_loss_adv = tf.reduce_mean((0.9*tf.ones_like(data_dx_)  - data_dx_)**2)
             e_loss_adv = tf.reduce_mean((0.9*tf.ones_like(data_dz_)  - data_dz_)**2)
 
-            g_e_loss = g_loss_adv + e_loss_adv + 10 * (l2_loss_x + l2_loss_z) + 10 * sigma_square_loss
+            g_e_loss = g_loss_adv + e_loss_adv + 10 * (l2_loss_x + l2_loss_z) #+ 10 * sigma_square_loss
 
 #             if self.params['use_bnn']:
 #                 loss_g_kl = sum(self.g_net.losses)
@@ -378,21 +373,14 @@ class BayesGM(object):
                             )
 
     @tf.function
-    def evaluate(self, data, data_z=None, nb_intervals=200, use_x_sd=True, eps=1e-6):
+    def evaluate(self, data, data_z=None, nb_intervals=200, use_x_sd=True):
         if data_z is None:
             data_z = self.e_net(data)
 
         mu_x, sigma_square_x = self.g_net(data_z)
-        if 'sigma_x' in self.params:
-            sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
-        else:
-            sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
-
 
         if use_x_sd:
-            data_x_pred = tf.random.normal(
-                shape=tf.shape(mu_x), mean=mu_x, stddev=tf.sqrt(sigma_square_x)
-            )
+            data_x_pred = self.g_net.reparameterize(mu_x, sigma_square_x)
         else:
             data_x_pred = mu_x
 
@@ -400,20 +388,14 @@ class BayesGM(object):
         return mse_x
 
     @tf.function
-    def generate(self, nb_samples=1000, use_x_sd=True, eps=1e-6):
+    def generate(self, nb_samples=1000, use_x_sd=True):
 
         data_z = np.random.normal(np.zeros(self.params['z_dim']), 1.0, (nb_samples, self.params['z_dim'])).astype('float32')
 
         mu_x, sigma_square_x = self.g_net(data_z)
-        if 'sigma_x' in self.params:
-            sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
-        else:
-            sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
 
         if use_x_sd:
-            data_x_gen = tf.random.normal(
-                shape=tf.shape(mu_x), mean=mu_x, stddev=tf.sqrt(sigma_square_x)
-            )
+            data_x_gen = self.g_net.reparameterize(mu_x, sigma_square_x)
         else:
             data_x_gen = mu_x
         return data_x_gen, sigma_square_x
@@ -427,20 +409,10 @@ class BayesGM(object):
         data_posterior_z_flat = tf.reshape(data_posterior_z, [-1, self.params['z_dim']])  # Flatten: Shape: (n_IS * n_samples, z_dim)
         mu_x_flat, sigma_square_x_flat = self.g_net(data_posterior_z_flat)  # Output shape: (n_MCMC*n_samples, x_dim)
 
-        if 'sigma_x' in self.params:
-            # Use fixed variance if provided
-            sigma_square_x_flat = tf.fill(tf.shape(mu_x_flat), self.params['sigma_x']**2)
-        else:
-            # Dynamically compute variance for all dimensions
-            sigma_square_x_flat = tf.nn.softplus(sigma_square_x_flat) + eps  # Shape: (n_MCMC*n_samples, x_dim)
-
+        data_x_pred_flat = self.g_net.reparameterize(mu_x_flat, sigma_square_x_flat)
         # Correctly reshape mean and variance
-        mu_x = tf.reshape(mu_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  # Shape: (n_MCMC, n_samples, x_dim)
-        sigma_square_x = tf.reshape(sigma_square_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  # Shape: (n_MCMC, n_samples, x_dim)
-
-        data_x_pred = tf.random.normal(
-            shape=tf.shape(mu_x), mean=mu_x, stddev=tf.sqrt(sigma_square_x)
-        )
+        #mu_x = tf.reshape(mu_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  # Shape: (n_MCMC, n_samples, x_dim)
+        data_x_pred = tf.reshape(data_x_pred_flat, [n_mcmc, n_samples, self.params['x_dim']])
         return data_x_pred
 
     def cond_generate(self, data_x1, ind_x1, n_mcmc=3000, q_sd=1.0, bs=100):
@@ -611,10 +583,6 @@ class BayesGM(object):
         """
 
         mu_x, sigma_square_x = self.g_net(data_z)
-        if 'sigma_x' in self.params:
-            sigma_square_x = tf.fill(tf.shape(mu_x), self.params['sigma_x']**2)
-        else:
-            sigma_square_x = tf.nn.softplus(sigma_square_x) + eps
 
         if ind_x1 is not None:
             mu_x = tf.gather(mu_x, ind_x1, axis=1)
@@ -632,10 +600,10 @@ class BayesGM(object):
 
     def metropolis_hastings_sampler(self, data, ind_x1=None, initial_q_sd = 1.0, q_sd = None, burn_in = 5000, n_mcmc = 3000, target_acceptance_rate=0.25, tolerance=0.05, adjustment_interval=50, adaptive_sd=None, window_size=100):
         """
-        Samples from the posterior distribution P(Z|X,Y,V) using the Metropolis-Hastings algorithm with adaptive proposal adjustment.
+        Samples from the posterior distribution P(Z|X) using the Metropolis-Hastings algorithm with adaptive proposal adjustment.
 
         Args:
-            data (tuple): Tuple containing data_x, data_y, data_v.
+            data: observed data with shape (n, p).
             ind_x1 (list): Index for the X1 to be conditioned.
             q_sd (float or None): Fixed standard deviation for the proposal distribution. If None, `q_sd` will adapt.
             initial_q_sd (float): Initial standard deviation of the proposal distribution.
@@ -650,7 +618,6 @@ class BayesGM(object):
             np.ndarray: Posterior samples with shape (n_mcmc, n, q), where q is the dimension of Z.
         """
         
-
         # Initialize the state of n chains
         current_state = np.random.normal(0, 1, size = (len(data), self.params['z_dim'])).astype('float32')
 
@@ -694,7 +661,7 @@ class BayesGM(object):
                 # Calculate the current acceptance rate
                 current_acceptance_rate = np.sum(recent_acceptances) / (len(recent_acceptances)*len(data))
                 
-                print(f"Current MCMC Acceptance Rate: {current_acceptance_rate:.4f}")
+                #print(f"Current MCMC Acceptance Rate: {current_acceptance_rate:.4f}")
                 
                 # Adjust q_sd based on the acceptance rate
                 if current_acceptance_rate < target_acceptance_rate - tolerance:
@@ -702,7 +669,7 @@ class BayesGM(object):
                 elif current_acceptance_rate > target_acceptance_rate + tolerance:
                     q_sd *= 1.1  # Increase q_sd to decrease acceptance rate
                     
-                print(f"MCMC Proposal Standard Deviation (q_sd): {q_sd:.4f}")
+                #print(f"MCMC Proposal Standard Deviation (q_sd): {q_sd:.4f}")
 
             # Append the current state to the list of samples
             if counter >= burn_in:
@@ -817,6 +784,8 @@ class BayesGM_v2(object):
         if self.params['use_bnn']:
             self.g_net = BayesianVariationalLowRankNet(input_dim=params['z_dim'],output_dim = params['x_dim'], 
                                 model_name='g_net', nb_units=params['g_units'])
+            self.fcn_net = FCNLowRankNet(input_dim=params['z_dim'],output_dim = params['x_dim'],
+                                         model_name='fcn_net', nb_units=params['g_units'])
         else:
             self.g_net = BaseFullyConnectedNet(input_dim=params['z_dim'],output_dim = params['x_dim']+1, 
                                            model_name='g_net', nb_units=params['g_units'])
@@ -881,6 +850,7 @@ class BayesGM_v2(object):
         """Initialize all the networks in CausalBGM."""
 
         self.g_net(np.zeros((1, self.params['z_dim'])))
+        self.e_net(np.zeros((1, self.params['x_dim'])))
         if print_summary:
             print(self.g_net.summary())
 
@@ -902,7 +872,7 @@ class BayesGM_v2(object):
         """
         with tf.GradientTape() as gen_tape:
             # Compute mean, diagonal variance, full covariance matrix, and low-rank factor U
-            mu_x, var_diag, full_cov_matrix, U = self.g_net(data_z)
+            mu_x, var_diag, U = self.g_net(data_z)
 
             # Compute covariance inverse using Woodbury identity
             Sigma_inv = self.g_net.compute_covariance_inverse(var_diag, U)
@@ -932,13 +902,16 @@ class BayesGM_v2(object):
             # Add KL divergence if Bayesian Neural Network (BNN) is used
             if self.params['use_bnn']:
                 loss_kl = sum(self.g_net.losses)  # KL divergence from Bayesian layers
-                loss_x += loss_kl * self.params['kl_weight']
+                loss_total_x = loss_x + loss_kl * self.params['kl_weight']
+            else:
+                loss_kl = 0
+                loss_total_x = loss_x
 
         # Compute gradients and apply updates
-        g_gradients = gen_tape.gradient(loss_x, self.g_net.trainable_variables)
+        g_gradients = gen_tape.gradient(loss_total_x, self.g_net.trainable_variables)
         self.g_optimizer.apply_gradients(zip(g_gradients, self.g_net.trainable_variables))
 
-        return loss_x, loss_mse
+        return loss_x, loss_kl, loss_mse
         
     # Update posterior of latent variables Z
     @tf.function
@@ -956,7 +929,7 @@ class BayesGM_v2(object):
         """
         with tf.GradientTape() as tape:
             # Get predicted mean, diagonal variance, full covariance matrix, and low-rank component
-            mu_x, var_diag, full_cov_matrix, U = self.g_net(data_z)
+            mu_x, var_diag, U = self.g_net(data_z)
 
             # Compute the inverse covariance matrix using the Woodbury identity
             Sigma_inv = self.g_net.compute_covariance_inverse(var_diag, U)
@@ -1012,7 +985,9 @@ class BayesGM_v2(object):
                 data_z_hat = data_z*epsilon_z + data_z_*(1-epsilon_z)
                 data_dz_hat = self.dz_net(data_z_hat)
             with tf.GradientTape() as gpx_tape:
-                data_x_, _, _, _ = self.g_net(data_z)
+                #mean, var_diag, U = self.g_net(data_z)
+                #data_x_ = self.g_net.reparameterize(mean, var_diag, U)
+                data_x_, _, _ = self.g_net(data_z)
                 data_x_hat = data_x*epsilon_x + data_x_*(1-epsilon_x)
                 data_dx_hat = self.dx_net(data_x_hat)
             
@@ -1062,23 +1037,25 @@ class BayesGM_v2(object):
                 returns various of generator loss functions.
         """  
         with tf.GradientTape(persistent=True) as gen_tape:
-            data_x_, var_diag, full_cov_matrix, U = self.g_net(data_z)
-
-            #reg_loss = tf.reduce_mean(tf.square(var_diag)) + tf.reduce_mean(tf.square(U))
-            #reg_loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(full_cov_matrix)-3.)))
-            reg_loss = 0
+            #mean, var_diag, U = self.g_net(data_z)
+            #data_x_ = self.g_net.reparameterize(mean, var_diag, U)
+            data_x_, _, _ = self.g_net(data_z)
+            reg_loss = 0 #tf.reduce_sum(tf.square(U))
 
             data_z_ = self.e_net(data_x)
 
             data_z__= self.e_net(data_x_)
-            data_x__, _, _, _ = self.g_net(data_z_)
+            #mean_, var_diag_, U_ = self.g_net(data_z_)
+            #data_x__ = self.g_net.reparameterize(mean_, var_diag_, U_)
+            data_x__, _, _ = self.g_net(data_z_)
             
             data_dx_ = self.dx_net(data_x_)
             data_dz_ = self.dz_net(data_z_)
             
             l2_loss_x = tf.reduce_mean((data_x - data_x__)**2)
             l2_loss_z = tf.reduce_mean((data_z - data_z__)**2)
-            
+            #g_loss_adv = -tf.reduce_mean(data_dx_)
+            #e_loss_adv = -tf.reduce_mean(data_dz_)
             g_loss_adv = tf.reduce_mean((0.9*tf.ones_like(data_dx_)  - data_dx_)**2)
             e_loss_adv = tf.reduce_mean((0.9*tf.ones_like(data_dz_)  - data_dz_)**2)
 
@@ -1119,22 +1096,26 @@ class BayesGM_v2(object):
                 )
                 if verbose:
                     print(loss_contents)
-                data_z_ = self.e_net(data)
-                data_x__, _, _, _ = self.g_net(data_z_)
-                MSE = tf.reduce_mean((data - data_x__)**2)
-                data_gen_1, sigma_square_x_1 = self.generate(nb_samples=5000)
-                data_gen_12, sigma_square_x_12 = self.generate(nb_samples=5000,use_x_sd=False)
-                np.savez('%s/init_data_gen_at_%d.npz'%(self.save_dir, batch_iter),
-                        gen1=data_gen_1, gen12=data_gen_12,
-                        z=data_z_, x_rec=data_x__, var1=sigma_square_x_1, var12=sigma_square_x_12
-                        )
-                print('MSE_x', MSE.numpy())
+
+                mu_x, var_diag, U, data_x_gen = self.generate(nb_samples=5000)
+                
+                if self.params['save_res']:
+                    np.savez('%s/init_data_gen_at_%d.npz'%(self.save_dir, batch_iter),
+                            mu_x=mu_x, 
+                            var_diag=var_diag, 
+                            U=U, 
+                            data_x_gen=data_x_gen)
+                
                 mse_x = self.evaluate(data = data, use_x_sd = True)
                 print('iter [%d/%d]: MSE_x: %.4f\n' % (batch_iter, n_iter, mse_x))
                 mse_x = self.evaluate(data = data, use_x_sd = False)
                 print('iter [%d/%d]: MSE_x no x_sd: %.4f\n' % (batch_iter, n_iter, mse_x))
-                if self.params['save_model']:
-                    ckpt_save_path = self.ckpt_manager.save(batch_iter)
+        if self.params['save_model']:
+            base_path = self.checkpoint_path + f"/weights_at_egm_init"
+            self.e_net.save_weights(f"{base_path}_encoder.weights.h5")
+            self.g_net.save_weights(f"{base_path}_generator.weights.h5")
+            print('Saving checkpoint for egm_init at {}'.format(base_path))
+
         print('EGM Initialization Ends.')
 #################################### EGM initialization #############################################
 
@@ -1169,7 +1150,7 @@ class BayesGM_v2(object):
                     # Update model parameters of G, H, F with SGD
                     batch_z = tf.Variable(tf.gather(self.data_z, batch_idx, axis = 0), name='batch_z', trainable=True)
                     batch_x = data[batch_idx,:]
-                    loss_x, loss_mse_x = self.update_g_net(batch_z, batch_x)
+                    loss_x, loss_kl, loss_mse_x = self.update_g_net(batch_z, batch_x)
 
                     # Update Z by maximizing a posterior or posterior mean
                     loss_postrior_z = self.update_latent_variable_sgd(batch_z, batch_x)
@@ -1182,8 +1163,8 @@ class BayesGM_v2(object):
                     
                     # Update the progress bar with the current loss information
                     loss_contents = (
-                        'loss_x: [%.4f], loss_mse_x: [%.4f], loss_postrior_z: [%.4f]'
-                        % (loss_x, loss_mse_x, loss_postrior_z)
+                        'loss_x: [%.4f], loss_kl: [%.4f], loss_mse_x: [%.4f], loss_postrior_z: [%.4f]'
+                        % (loss_x, loss_kl, loss_mse_x, loss_postrior_z)
                     )
                     batch_bar.set_postfix_str(loss_contents)
                     batch_bar.update(1)
@@ -1199,31 +1180,30 @@ class BayesGM_v2(object):
                     print('Epoch [%d/%d]: MSE_x: %.4f\n' % (epoch, epochs, mse_x))
 
                 if self.params['save_model']:
-                    ckpt_save_path = self.ckpt_manager.save(epoch)
-                    print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
+                    #ckpt_save_path = self.ckpt_manager.save(epoch)
+                    #print('Saving checkpoint for epoch {} at {}'.format(epoch, ckpt_save_path))
+                    base_path = self.checkpoint_path + f"/weights_at_{epoch}"
+                    self.e_net.save_weights(f"{base_path}_encoder.weights.h5")
+                    self.g_net.save_weights(f"{base_path}_generator.weights.h5")
+                    print('Saving checkpoint for epoch {} at {}'.format(epoch, base_path))
                         
-                data_gen_1, sigma_square_x_1 = self.generate(nb_samples=5000)
-                data_gen_12, sigma_square_x_12 = self.generate(nb_samples=5000,use_x_sd=False)
+                mu_x, var_diag, U, data_x_gen = self.generate(nb_samples=5000)
+                
                 if self.params['save_res']:
                     np.savez('%s/data_gen_at_%d.npz'%(self.save_dir, epoch),
-                            gen1=data_gen_1, gen12=data_gen_12,
-                            z=self.data_z.numpy(), var1=sigma_square_x_1, var12=sigma_square_x_12
+                            mu_x=mu_x, var_diag=var_diag,U=U,data_x_gen=data_x_gen,
+                            z=self.data_z.numpy()
                             )
 
     @tf.function
-    def evaluate(self, data, data_z=None, nb_intervals=200, use_x_sd=True, eps=1e-6):
+    def evaluate(self, data, data_z=None, use_x_sd=True):
         if data_z is None:
-            data_z = self.e_net(data)
+            data_z = self.e_net(data, training=False)
 
-        mu_x, var_diag, full_cov_matrix, U = self.g_net(data_z)
+        mu_x, var_diag, U = self.g_net(data_z, training=False)
 
         if use_x_sd:
-            # Define a multivariate normal distribution
-            mvn_dist = tfd.MultivariateNormalFullCovariance(
-                loc=mu_x,               # Mean (batch, p)
-                covariance_matrix=full_cov_matrix  # Covariance (batch, p, p)
-            )
-            data_x_pred = mvn_dist.sample()
+            data_x_pred = self.g_net.reparameterize(mu_x, var_diag, U)
         else:
             data_x_pred = mu_x
 
@@ -1231,7 +1211,7 @@ class BayesGM_v2(object):
         return mse_x
 
     @tf.function
-    def generate(self, nb_samples=1000, use_x_sd=True, eps=1e-6):
+    def generate(self, nb_samples=1000):
         """
         Generate samples from the learned generative model.
 
@@ -1248,18 +1228,11 @@ class BayesGM_v2(object):
         data_z = tf.random.normal(shape=(nb_samples, self.params['z_dim']), mean=0.0, stddev=1.0)
 
         # Get mean, diagonal variance, and low-rank factor U from g_net
-        mu_x, var_diag, full_cov_matrix, U = self.g_net(data_z)
+        mu_x, var_diag, U = self.g_net(data_z, training=False)
 
-        if use_x_sd:
-            # Define a multivariate normal distribution with learned mean and covariance
-            mvn_dist = tfd.MultivariateNormalFullCovariance(
-                loc=mu_x, covariance_matrix=full_cov_matrix
-            )
-            data_x_gen = mvn_dist.sample()  # Shape: (nb_samples, x_dim)
-        else:
-            data_x_gen = mu_x  # Use mean prediction only
+        data_x_gen = self.g_net.reparameterize(mu_x, var_diag, U)
 
-        return data_x_gen, full_cov_matrix
+        return mu_x, var_diag, U, data_x_gen
 
     @tf.function
     def predict_on_posteriors(self, data_posterior_z, eps=1e-6):
@@ -1276,18 +1249,23 @@ class BayesGM_v2(object):
 
         # Flatten data to pass through the network
         data_posterior_z_flat = tf.reshape(data_posterior_z, [-1, self.params['z_dim']])  
-        mu_x_flat, var_diag, full_cov_matrix, U = self.g_net(data_posterior_z_flat)  # Retrieve low-rank structure
+        mu_x_flat, var_diag, U = self.g_net(data_posterior_z_flat, training=False)  # Retrieve low-rank structure
+
+        #cov_matrix = tf.matmul(U, U, transpose_b=True)  # (batch, p, p)
+        #diag_matrix = tf.linalg.diag(var_diag)  # Convert var_diag to diagonal matrix
+        #full_cov_matrix = cov_matrix + diag_matrix
 
         # Reshape mean and covariance matrix
-        mu_x = tf.reshape(mu_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  
-        full_cov_matrix = tf.reshape(full_cov_matrix, [n_mcmc, n_samples, self.params['x_dim'], self.params['x_dim']])  
+        #mu_x = tf.reshape(mu_x_flat, [n_mcmc, n_samples, self.params['x_dim']])  
+        #full_cov_matrix = tf.reshape(full_cov_matrix, [n_mcmc, n_samples, self.params['x_dim'], self.params['x_dim']])  
+        data_x_pred_flat = self.g_net.reparameterize(mu_x_flat, var_diag, U)
 
         # Define multivariate normal distribution with the full covariance matrix
-        mvn_dist = tfd.MultivariateNormalFullCovariance(loc=mu_x, covariance_matrix=full_cov_matrix)
+        #mvn_dist = tfd.MultivariateNormalFullCovariance(loc=mu_x, covariance_matrix=full_cov_matrix)
 
         # Sample from the multivariate normal distribution
-        data_x_pred = mvn_dist.sample()  # Shape: (n_MCMC, n_samples, x_dim)
-
+        #data_x_pred = mvn_dist.sample()  # Shape: (n_MCMC, n_samples, x_dim)
+        data_x_pred = tf.reshape(data_x_pred_flat, [n_mcmc, n_samples, self.params['x_dim']])
         return data_x_pred
 
     @tf.function
@@ -1305,20 +1283,52 @@ class BayesGM_v2(object):
             log_posterior (Tensor): Log posterior, shape (batch,).
         """
         # Obtain mean, variance, full covariance matrix, and low-rank factor U from generative model
-        mu_x, var_diag, full_cov_matrix, U = self.g_net(data_z)
+        mu_x, var_diag, U = self.g_net(data_z, training=False)
+        #cov_matrix = tf.matmul(U, U, transpose_b=True)  # (batch, p, p)
+        #diag_matrix = tf.linalg.diag(var_diag)  # Convert var_diag to diagonal matrix
+        #full_cov_matrix = cov_matrix + diag_matrix
 
         if ind_x1 is not None:
             mu_x = tf.gather(mu_x, ind_x1, axis=1)
-            full_cov_matrix = tf.gather(full_cov_matrix, ind_x1, axis=1)  # (batch, p1, p)
-            full_cov_matrix = tf.gather(full_cov_matrix, ind_x1, axis=2)  # (batch, p1, p1)
+            var_diag = tf.gather(var_diag, ind_x1, axis=1)
+            U = tf.gather(U, ind_x1, axis=1) # Slices the 'p' dimension of U
+            #full_cov_matrix = tf.gather(full_cov_matrix, ind_x1, axis=1)  # (batch, p1, p)
+            #full_cov_matrix = tf.gather(full_cov_matrix, ind_x1, axis=2)  # (batch, p1, p1)
     
         # Define multivariate normal distribution
-        mvn_dist = tfd.MultivariateNormalFullCovariance(
-            loc=mu_x, covariance_matrix=full_cov_matrix
-        )
+        # mvn_dist = tfd.MultivariateNormalFullCovariance(
+        #     loc=mu_x, covariance_matrix=full_cov_matrix
+        # )
 
         # Compute log P(X | Z) using the multivariate normal log-density
-        log_px_z = mvn_dist.log_prob(data_x)  # (batch,)
+        #log_px_z = mvn_dist.log_prob(data_x)  # (batch,)
+        # Define the multivariate normal distribution using the efficient low-rank representation.
+        # This describes X ~ N(μ, D + UUᵀ), where D = diag(var_diag).
+
+        # mvn_dist = tfd.MultivariateNormalDiagPlusLowRank(
+        #     loc=mu_x,
+        #     scale_diag=tf.sqrt(var_diag), # Uses standard deviation for the diagonal scale
+        #     scale_perturb_factor=U
+        # )
+        # log_px_z = mvn_dist.log_prob(data_x)  # (batch,)
+
+        # Compute the inverse covariance matrix using the Woodbury identity
+        Sigma_inv = self.g_net.compute_covariance_inverse(var_diag, U)
+        # Compute the log determinant using Sylvester’s theorem
+        log_det_Sigma = self.g_net.compute_log_det(var_diag, U)
+        # Compute residuals
+        residuals = data_x - mu_x  # Shape: (batch, x_dim)
+        # Compute Mahalanobis distance: (x - mu)^T Σ^{-1} (x - mu)
+        residuals_expanded = tf.expand_dims(residuals, axis=-1)  # Shape: (batch, x_dim, 1)
+        mahalanobis_distance = tf.squeeze(
+            tf.linalg.matmul(
+                tf.linalg.matmul(tf.transpose(residuals_expanded, perm=[0, 2, 1]), Sigma_inv),
+                residuals_expanded
+            ), axis=[1, 2]
+        )  # Shape: (batch,)
+        # Compute log-likelihood term log p(x|z)
+        log_px_z = -0.5 * (mahalanobis_distance + log_det_Sigma)  # Shape: (batch,)
+
 
         log_prior_z =  -0.5 * tf.reduce_sum(data_z**2, axis=1) # (batch,)
 
@@ -1388,7 +1398,7 @@ class BayesGM_v2(object):
                 # Calculate the current acceptance rate
                 current_acceptance_rate = np.sum(recent_acceptances) / (len(recent_acceptances)*len(data))
                 
-                print(f"Current MCMC Acceptance Rate: {current_acceptance_rate:.4f}")
+                #print(f"Current MCMC Acceptance Rate: {current_acceptance_rate:.4f}")
                 
                 # Adjust q_sd based on the acceptance rate
                 if current_acceptance_rate < target_acceptance_rate - tolerance:
@@ -1396,7 +1406,7 @@ class BayesGM_v2(object):
                 elif current_acceptance_rate > target_acceptance_rate + tolerance:
                     q_sd *= 1.1  # Increase q_sd to decrease acceptance rate
                     
-                print(f"MCMC Proposal Standard Deviation (q_sd): {q_sd:.4f}")
+                #print(f"MCMC Proposal Standard Deviation (q_sd): {q_sd:.4f}")
 
             # Append the current state to the list of samples
             if counter >= burn_in:
@@ -1407,7 +1417,7 @@ class BayesGM_v2(object):
         # Calculate the acceptance rate
         acceptance_rate = np.sum(recent_acceptances) / (len(recent_acceptances)*len(data))
         print(f"Final MCMC Acceptance Rate: {acceptance_rate:.4f}")
-        #print(f"Final Proposal Standard Deviation (q_sd): {q_sd:.4f}")
+        print(f"Final Proposal Standard Deviation (q_sd): {q_sd:.4f}")
         return np.array(samples)
 
     def gradient_mcmc_sampler(self,
