@@ -2,6 +2,9 @@ import numpy as np
 import scipy.linalg as linalg
 from sklearn.preprocessing import StandardScaler
 from sklearn.datasets import make_low_rank_matrix
+from sklearn.decomposition import PCA
+import warnings
+
 
 
 class Gaussian_sampler(object):
@@ -370,7 +373,7 @@ def get_SDR_dim(X, y, n_slices = 10, ratio = 0.8):
     n_directions = threshold_index + 1
     return n_directions
 
-def estimate_latent_dims(x,y,v, v_ratio = 0.7, z0_dim=3, min_dim = 1):
+def estimate_latent_dims(x,y,v, v_ratio = 0.7, z0_dim=3, max_total_dim=64, min_z3_dim = 3):
     v = StandardScaler().fit_transform(v)
     y = StandardScaler().fit_transform(y)
     z1_dim = get_SDR_dim(v, y, n_slices=10, ratio=0.8)
@@ -379,7 +382,10 @@ def estimate_latent_dims(x,y,v, v_ratio = 0.7, z0_dim=3, min_dim = 1):
     cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
     threshold_index = np.argmax(cumulative_variance >= v_ratio)
     total_z_dim = threshold_index + 1
+    total_z_dim = min(max_total_dim, total_z_dim)
     z3_dim = total_z_dim - z0_dim - z1_dim - z2_dim
-    if z3_dim<=0:
-        z3_dim = min_dim
+    if z3_dim<=min_z3_dim:
+        z3_dim = min_z3_dim
     return [z0_dim, z1_dim, z2_dim, z3_dim]
+
+
