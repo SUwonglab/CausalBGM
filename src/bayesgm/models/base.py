@@ -61,12 +61,19 @@ class BayesianFullyConnectedNet(tf.keras.Model):
         self.all_layers = []
         
         self.norm_layer = tf.keras.layers.BatchNormalization()
+
+        kernel_prior_fn = lambda dtype, shape, name, trainable, add_variable_fn: tfp.distributions.Independent(
+                    tfp.distributions.Normal(loc=tf.zeros(shape, dtype=dtype), scale=0.1),
+                    reinterpreted_batch_ndims=len(shape)
+                )
+
         # Define Bayesian layers for each fully connected layer
         for i in range(len(nb_units) + 1):
             units = self.output_dim if i == len(nb_units) else self.nb_units[i]
             bayesian_layer = tfp.layers.DenseFlipout(
                 units=units,
-                activation=None
+                activation=None,
+                kernel_prior_fn=kernel_prior_fn
             )
             self.all_layers.append(bayesian_layer)
             
@@ -96,22 +103,31 @@ class BayesianVariationalNet(tf.keras.Model):
         self.all_layers = []
         
         self.norm_layer = tf.keras.layers.BatchNormalization()
+
+        kernel_prior_fn = lambda dtype, shape, name, trainable, add_variable_fn: tfp.distributions.Independent(
+                    tfp.distributions.Normal(loc=tf.zeros(shape, dtype=dtype), scale=0.1),
+                    reinterpreted_batch_ndims=len(shape)
+                )
+
         # Define Bayesian layers for each fully connected layer
         for i in range(len(nb_units)):
             #units = self.output_dim if i == len(nb_units) else self.nb_units[i]
             bayesian_layer = tfp.layers.DenseFlipout(
                 units=self.nb_units[i],
-                activation=None
+                activation=None,
+                kernel_prior_fn=kernel_prior_fn
             )
             self.all_layers.append(bayesian_layer)
         self.mean_layer = tfp.layers.DenseFlipout(
                 units=self.output_dim,
-                activation=None
+                activation=None,
+                kernel_prior_fn=kernel_prior_fn
             )
         self.var_layer = tfp.layers.DenseFlipout(
                 units=self.output_dim,
                 #units=1,
-                activation=None
+                activation=None,
+                kernel_prior_fn=kernel_prior_fn
             )
             
     def call(self, inputs, eps=1e-6, training=True):
@@ -527,57 +543,66 @@ class FCNLowRankNet(tf.keras.Model):
 
         return log_det
 
-    def transfer_weights_from_bayesian(self, bayesian_model):
+    def transfer_weights_from_bayesian(self, bayesian_model, method='mean'):
         """
-        Transfer weights from a BayesianVariationalLowRankNet to this FCN model.
-        This function extracts the posterior mean of the Bayesian weights and assigns them
-        to the corresponding FCN layers.
-        
+        UPDATED: Transfers weights from a BayesianVariationalLowRankNet to this FCN model.
+
+        This function can operate in two modes, controlled by the `method` argument:
+        - 'mean': Extracts the posterior mean of the Bayesian weights and assigns them.
+                  This creates a single deterministic model representing the "average"
+                  function learned by the BNN.
+        - 'sample': Draws a single random sample from the posterior weight distributions
+                    and assigns it. This is useful for creating ensemble members.
+
         Args:
             bayesian_model: BayesianVariationalLowRankNet model with trained weights.
+            method (str): The transfer method. Must be either 'mean' or 'sample'.
+                          Defaults to 'mean'.
         """
+        if method not in ['mean', 'sample']:
+            raise ValueError(f"Invalid method '{method}'. Must be either 'mean' or 'sample'.")
+
+        print(f"Starting weight transfer using the '{method}' method...")
+
         # Transfer weights from hidden layers
         for i, (fcn_layer, bayesian_layer) in enumerate(zip(self.all_layers, bayesian_model.all_layers)):
-            # Extract posterior mean of kernel and bias from Bayesian layer
-            bayesian_kernel_mean = bayesian_layer.kernel_posterior.mean()
-            bayesian_bias_mean = bayesian_layer.bias_posterior.mean()
+            if method == 'mean':
+                kernel_weights = bayesian_layer.kernel_posterior.mean()
+                bias_weights = bayesian_layer.bias_posterior.mean()
+            else:  # method == 'sample'
+                kernel_weights = bayesian_layer.kernel_posterior.sample()
+                bias_weights = bayesian_layer.bias_posterior.sample()
             
-            # Assign to FCN layer
-            fcn_layer.kernel.assign(bayesian_kernel_mean)
-            fcn_layer.bias.assign(bayesian_bias_mean)
-            print(f"Transferred weights for layer {i+1}")
+            fcn_layer.kernel.assign(kernel_weights)
+            fcn_layer.bias.assign(bias_weights)
+            print(f"Transferred weights for hidden layer {i+1}")
+
+        # Define a helper function for brevity
+        def transfer_output_layer(fcn_layer, bayesian_layer, layer_name):
+            if method == 'mean':
+                kernel_weights = bayesian_layer.kernel_posterior.mean()
+                bias_weights = bayesian_layer.bias_posterior.mean()
+            else: # method == 'sample'
+                kernel_weights = bayesian_layer.kernel_posterior.sample()
+                bias_weights = bayesian_layer.bias_posterior.sample()
+            fcn_layer.kernel.assign(kernel_weights)
+            fcn_layer.bias.assign(bias_weights)
+            print(f"Transferred weights for {layer_name} layer")
 
         # Transfer weights from output layers
-        # Mean layer
-        bayesian_kernel_mean = bayesian_model.mean_layer.kernel_posterior.mean()
-        bayesian_bias_mean = bayesian_model.mean_layer.bias_posterior.mean()
-        self.mean_layer.kernel.assign(bayesian_kernel_mean)
-        self.mean_layer.bias.assign(bayesian_bias_mean)
-        print("Transferred weights for mean layer")
+        transfer_output_layer(self.mean_layer, bayesian_model.mean_layer, "mean")
+        transfer_output_layer(self.var_layer, bayesian_model.var_layer, "variance")
+        transfer_output_layer(self.low_rank_layer, bayesian_model.low_rank_layer, "low-rank")
 
-        # Variance layer
-        bayesian_kernel_mean = bayesian_model.var_layer.kernel_posterior.mean()
-        bayesian_bias_mean = bayesian_model.var_layer.bias_posterior.mean()
-        self.var_layer.kernel.assign(bayesian_kernel_mean)
-        self.var_layer.bias.assign(bayesian_bias_mean)
-        print("Transferred weights for variance layer")
-
-        # Low-rank layer
-        bayesian_kernel_mean = bayesian_model.low_rank_layer.kernel_posterior.mean()
-        bayesian_bias_mean = bayesian_model.low_rank_layer.bias_posterior.mean()
-        self.low_rank_layer.kernel.assign(bayesian_kernel_mean)
-        self.low_rank_layer.bias.assign(bayesian_bias_mean)
-        print("Transferred weights for low-rank layer")
-
-        # Transfer batch normalization parameters
-        if hasattr(bayesian_model.norm_layer, 'moving_mean'):
+        # Batch normalization parameters are not distributions, so we transfer them directly.
+        if hasattr(bayesian_model.norm_layer, 'moving_mean') and bayesian_model.norm_layer.moving_mean is not None:
             self.norm_layer.moving_mean.assign(bayesian_model.norm_layer.moving_mean)
             self.norm_layer.moving_variance.assign(bayesian_model.norm_layer.moving_variance)
             self.norm_layer.gamma.assign(bayesian_model.norm_layer.gamma)
             self.norm_layer.beta.assign(bayesian_model.norm_layer.beta)
             print("Transferred batch normalization parameters")
 
-        print("Weight transfer completed successfully!")
+        print(f"Weight transfer using '{method}' method completed successfully!")
 
 class Discriminator(tf.keras.Model):
     """Discriminator network.

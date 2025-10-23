@@ -213,7 +213,7 @@ def simulate_heteroskedastic_data(n=1000, d=5, seed=42):
     Y = X1 + epsilon
     return X, Y, sigma
 
-def simulate_z_hetero(n=20000, k=2, d=5, seed=42):
+def simulate_z_hetero(n=20000, k=3, d=20-1, seed=42):
     np.random.seed(seed)
 
     Z = np.random.randn(n, k)
@@ -418,3 +418,5 @@ def estimate_latent_dims(x,y,v, v_ratio = 0.7, z0_dim=3, min_dim = 1):
     if z3_dim<=0:
         z3_dim = min_dim
     return [z0_dim, z1_dim, z2_dim, z3_dim]
+
+    

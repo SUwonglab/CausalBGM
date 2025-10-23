@@ -2,7 +2,7 @@ import yaml
 import argparse
 import numpy as np
 import sys
-from bayesgm.models import CausalBGM, BayesGM, BayesGM_v2
+from bayesgm.models import CausalBGM, BayesGM, BayesGM_v2, BayesGM_v0
 from bayesgm.utils import (
     GMM_indep_sampler, 
     Swiss_roll_sampler, 
@@ -20,7 +20,7 @@ from bayesgm.datasets import (
 )
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
-tf.config.set_visible_devices([], 'GPU')  # 显式禁止使用 GPU
+#tf.config.set_visible_devices([], 'GPU')  # 显式禁止使用 GPU
 
 #k l z e b u
 if __name__=="__main__":
@@ -30,8 +30,10 @@ if __name__=="__main__":
     parser.add_argument('-l', '--learning', type=float, help='learning rate', default=0.0001)
     parser.add_argument('-a', '--alpha', type=float, help='coefficient in EGM init')
     parser.add_argument('-z','--Z_dim', type=int,help="Latent dimension Z")
+    parser.add_argument('-x','--X_dim', type=int,help="Latent dimension X")
     parser.add_argument('-e','--epochs', type=int, default=500, help="Epoches for iterative updating")
     parser.add_argument('-b','--batches', type=int, default=100000, help="Batches for initialization")
+    parser.add_argument('-r','--rank', type=int, default=2, help="rank of low-rank approximation")
     parser.add_argument('-u','--units', type=int, nargs='+', default=[64,64,64,64,64],
                         help='Number of units for covariates generative model (default: [64,64,64,64,64]).')
     args = parser.parse_args()
@@ -40,9 +42,11 @@ if __name__=="__main__":
     lr = args.learning
     alpha = args.alpha
     z_dim = args.Z_dim
+    x_dim = args.X_dim
     units = args.units
     E=args.epochs
     B=args.batches
+    rank = args.rank
 
     with open(config, 'r') as f:
         params = yaml.safe_load(f)
@@ -179,6 +183,7 @@ if __name__=="__main__":
         params['g_units'] = units
         params['e_units'] = units
         params['z_dim'] = z_dim
+        params['rank'] = rank
 
         X, Z = simulate_low_rank_data(n_samples=20000, sigma_z=True)
         X_train, X_test, Z_train, Z_test = train_test_split(X, Z, test_size=0.1, random_state=123)
@@ -196,12 +201,39 @@ if __name__=="__main__":
         params['g_units'] = units
         params['e_units'] = units
         params['z_dim'] = z_dim
+        params['x_dim'] = x_dim
+        params['rank'] = rank
+        params['use_bnn'] = False
         X,Y = simulate_z_hetero(n=20000, k=params['z_dim'], d=params['x_dim']-1)
+        np.random.seed(123)
         X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1, random_state=123)
         data = np.c_[X_train, Y_train].astype('float32')
-        model = BayesGM_v2(params=params, random_seed=None)
-        #params['use_bnn']=False
-        #model = BayesGM(params=params, random_seed=None)
+        X_test = X_test.astype('float32')
+        Y_test = Y_test.astype('float32')
+        model = BayesGM(params=params, random_seed=None)
+        ind_x1 = list(range(params['x_dim']-1))
+
         model.egm_init(data=data, n_iter=B, batch_size=32, batches_per_eval=5000, verbose=1)
         model.fit(data=data, epochs=E, epochs_per_eval=20, verbose=1)
 
+        data_x_pred, pred_interval = model.predict(data=X_test, 
+                                                    ind_x1=ind_x1, 
+                                                    alpha=0.05, 
+                                                    bs=100, 
+                                                    n_mcmc=5000, 
+                                                    burn_in=5000, 
+                                                    step_size=0.01, 
+                                                    num_leapfrog_steps=10, 
+                                                    seed=42)
+        print(data_x_pred.shape, pred_interval.shape)
+
+        X_test_pred = data_x_pred[:,:,-1]
+        X_test_pred_mean = np.mean(X_test_pred, axis=0)
+        X_test_pred_median = np.median(X_test_pred, axis=0)
+        print(X_test_pred.shape, X_test_pred_mean.shape, X_test_pred_median.shape)
+        from scipy.stats import pearsonr, spearmanr
+        corr_pred_mean, _ = pearsonr(Y_test, X_test_pred_mean)
+        print(f"Pearson's correlation coefficient mean: {corr_pred_mean}")
+        corr_pred_median, _ = pearsonr(Y_test, X_test_pred_median)
+        print(f"Pearson's correlation coefficient median: {corr_pred_median}")
+        #np.savez('data_pred_heter.npz', data_x_pred=data_x_pred, pred_interval=pred_interval)

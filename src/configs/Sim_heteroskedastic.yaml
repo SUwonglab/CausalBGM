@@ -4,6 +4,7 @@ output_dir: '.'
 save_res: True
 save_model: True
 use_bnn: True
+rank: 2
 
 # Parameters for iterative updating algorithm
 z_dim: 3
