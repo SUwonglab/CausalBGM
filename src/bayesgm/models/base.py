@@ -388,6 +388,102 @@ class BayesianVariationalLowRankNet(tf.keras.Model):
         log_det = log_det_D + log_det_M
 
         return log_det
+    
+class StandardDeterministicNet(tf.keras.Model):
+    """ A standard network with the same architecture as the BNN. """
+    def __init__(self, input_dim, output_dim, model_name, nb_units=[256, 256, 256], rank=2):
+        super(StandardDeterministicNet, self).__init__()
+        # All parameters are identical to the BNN
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.model_name = model_name
+        self.nb_units = nb_units
+        self.rank = rank 
+
+        self.all_layers = []
+        # NOTE: BatchNormalization layer should be included if it was in the BNN
+        self.norm_layer = tf.keras.layers.BatchNormalization()
+
+        # Use standard Dense layers instead of DenseFlipout
+        for i in range(len(nb_units)):
+            dense_layer = tf.keras.layers.Dense(units=self.nb_units[i], activation=None)
+            self.all_layers.append(dense_layer)
+
+        # Output layers
+        self.mean_layer = tf.keras.layers.Dense(units=self.output_dim, activation=None)
+        self.var_layer = tf.keras.layers.Dense(units=self.output_dim, activation=None)
+        self.low_rank_layer = tf.keras.layers.Dense(units=self.output_dim * self.rank, activation=None)
+
+    def call(self, inputs, training=False):
+        # The call function has the exact same logic as the BNN
+        x = self.norm_layer(inputs, training=training)
+        for i, dense_layer in enumerate(self.all_layers):
+            with tf.name_scope(f"{self.model_name}_layer_{i+1}"):
+                x = dense_layer(x)
+                x = tf.keras.layers.LeakyReLU(alpha=0.2)(x)
+
+        with tf.name_scope(f"{self.model_name}_layer_output"):
+            mean = self.mean_layer(x)
+            var_raw = self.var_layer(x)
+            var_diag = tf.nn.softplus(var_raw) + 1e-3
+            U_flat = self.low_rank_layer(x)
+            U = tf.reshape(U_flat, [-1, self.output_dim, self.rank])
+            cov_matrix = tf.matmul(U, U, transpose_b=True)
+            diag_matrix = tf.linalg.diag(var_diag)
+            full_cov_matrix = cov_matrix + diag_matrix
+        return mean, var_diag, full_cov_matrix, U
+    
+    def compute_covariance_inverse(self, var_diag, U):
+        """
+        Computes the inverse of the covariance matrix Σ(z) = diag(var_diag) + UU^T
+        using the Woodbury identity.
+        Args:
+            var_diag: Tensor of shape (batch, p), diagonal variance.
+            U: Tensor of shape (batch, p, rank), low-rank component.
+        Returns:
+            Sigma_inv: Tensor of shape (batch, p, p), inverse of covariance matrix.
+        """
+        # D_inv = diag(1/var_diag)
+        D_inv = tf.linalg.diag(1.0 / var_diag)  # Shape: (batch, p, p)
+
+        # Compute U^T D^-1: Each column of U is divided by sqrt(var_diag) (broadcasting)
+        U_T_D_inv = tf.transpose(U, perm=[0, 2, 1]) / tf.expand_dims(var_diag, axis=1)  # Shape: (batch, rank, p)
+
+        # Compute middle term: M = I + U^T D^-1 U
+        M = tf.matmul(U_T_D_inv, U)  # Shape: (batch, rank, rank)
+        M_inv = tf.linalg.inv(tf.eye(self.rank) + M)  # Shape: (batch, rank, rank)
+
+        # Compute Σ^{-1} using Woodbury identity: D^-1 - D^-1 U M^-1 U^T D^-1
+        Sigma_inv = D_inv - tf.matmul(tf.transpose(U_T_D_inv, perm=[0, 2, 1]), tf.matmul(M_inv, U_T_D_inv))
+
+        return Sigma_inv
+
+    def compute_log_det(self, var_diag, U):
+        """
+        Computes the log determinant of Σ(z) = diag(var_diag) + UU^T
+        using Sylvester's determinant theorem.
+
+        Args:
+            var_diag: Tensor of shape (batch, p), diagonal variance.
+            U: Tensor of shape (batch, p, rank), low-rank component.
+
+        Returns:
+            log_det: Tensor of shape (batch,), log determinant of Σ(z).
+        """
+        # log(det(D)) = sum(log(diagonal elements))
+        log_det_D = tf.reduce_sum(tf.math.log(var_diag), axis=-1)  # Shape: (batch,)
+
+        # Compute M = I + U^T D^-1 U
+        U_T_D_inv = tf.transpose(U, perm=[0, 2, 1]) / tf.expand_dims(var_diag, axis=1)  # Shape: (batch, rank, p)
+        M = tf.matmul(U_T_D_inv, U)  # Shape: (batch, rank, rank)
+
+        # log(det(I + M))
+        log_det_M = tf.linalg.logdet(tf.eye(self.rank) + M)  # Shape: (batch,)
+
+        # Apply Sylvester’s theorem: log(det(Σ)) = log(det(D)) + log(det(I + M))
+        log_det = log_det_D + log_det_M
+
+        return log_det
 
 
 class FCNLowRankNet(tf.keras.Model):
@@ -649,3 +745,125 @@ class Discriminator(tf.keras.Model):
         with tf.name_scope("%s_layer_ouput" % self.model_name):
             output = fc_layer(x)
         return output
+    
+class MCMCBayesianNet(BaseFullyConnectedNet):
+    """
+    A fully connected network intended for use with MCMC.
+    It is structurally identical to BaseFullyConnectedNet, but we add helper
+    methods to compute the log prior and to perform a forward pass with an
+    explicit set of weights.
+    """
+    def __init__(self, *args, **kwargs):
+        super(MCMCBayesianNet, self).__init__(*args, **kwargs)
+
+    @tf.function
+    def call_with_weights(self, inputs, flattened_weights):
+        """
+        Performs a forward pass using a provided set of flattened weights
+        in a stateless, @tf.function-compatible manner.
+        """
+        # Unflatten the weights tensor into a list of tensors with the correct shapes
+        # for each layer's kernel and bias.
+        weight_shapes = [w.shape for w in self.trainable_variables]
+        unflattened_weights = []
+        start_idx = 0
+        for shape in weight_shapes:
+            size = tf.reduce_prod(shape)
+            w = tf.reshape(flattened_weights[start_idx : start_idx + size], shape)
+            unflattened_weights.append(w)
+            start_idx += size
+
+        # Perform the forward pass manually using the unflattened weights.
+        x = inputs
+        weight_idx = 0
+        # Iterate through hidden layers
+        for i, (fc_layer, norm_layer) in enumerate(self.all_layers[:-1]):
+            kernel = unflattened_weights[weight_idx]
+            bias = unflattened_weights[weight_idx + 1]
+            weight_idx += 2
+            
+            x = tf.matmul(x, kernel) + bias
+            if self.batchnorm:
+                # Batch norm layers have non-trainable state (moving mean/variance)
+                # but calling them like this is generally graph-compatible.
+                x = norm_layer(x, training=False) # Use inference mode for stability
+            x = tf.keras.layers.LeakyReLU(alpha=0.2)(x)
+        
+        # Process the final output layer
+        final_kernel = unflattened_weights[weight_idx]
+        final_bias = unflattened_weights[weight_idx + 1]
+        output = tf.matmul(x, final_kernel) + final_bias
+        
+        return output
+
+    @tf.function
+    def log_prior(self, flattened_weights):
+        """Calculates the log prior probability of the weights (L2 regularizer)."""
+        # Standard normal prior
+        prior_dist = tfp.distributions.Normal(loc=0., scale=1.)
+        return tf.reduce_sum(prior_dist.log_prob(flattened_weights))
+
+    
+# --- NEW HELPER FUNCTION TO RUN HMC ---
+def run_mcmc_for_net(net, x_train, y_train, likelihood_fn, initial_state, num_samples=1000, num_burnin_steps=500):
+    """
+    Runs Hamiltonian Monte Carlo to sample weights for a given network.
+
+    Args:
+        net: An instance of MCMCBayesianNet.
+        x_train: Training input data.
+        y_train: Training target data.
+        likelihood_fn: A function(y_true, y_pred) that returns the log-likelihood.
+        initial_state: A list of tensors representing the initial weights.
+        num_samples: Number of samples to return.
+        num_burnin_steps: Number of burn-in steps.
+
+    Returns:
+        A tensor of weight samples.
+    """
+    
+    # Flatten the initial state for the sampler
+    flat_initial_state = tf.concat([tf.reshape(w, [-1]) for w in initial_state], axis=0)
+
+    # Define the target log probability function (posterior)
+    def target_log_prob_fn(weights):
+        # Log Prior P(theta)
+        log_prior = net.log_prior(weights)
+        
+        # Log Likelihood P(D|theta)
+        y_pred = net.call_with_weights(x_train, weights)
+        log_likelihood = likelihood_fn(y_train, y_pred)
+
+        return log_prior + log_likelihood
+
+    # Set up the HMC sampler
+    hmc_kernel = tfp.mcmc.HamiltonianMonteCarlo(
+        target_log_prob_fn=target_log_prob_fn,
+        step_size=0.01,
+        num_leapfrog_steps=3
+    )
+    
+    # Use an adaptive step size for better performance
+    adaptive_hmc = tfp.mcmc.SimpleStepSizeAdaptation(
+        inner_kernel=hmc_kernel,
+        num_adaptation_steps=int(num_burnin_steps * 0.8)
+    )
+
+    # Run the chain
+    @tf.function
+    def run_chain():
+        samples, kernel_results = tfp.mcmc.sample_chain(
+            num_results=num_samples,
+            num_burnin_steps=num_burnin_steps,
+            current_state=flat_initial_state,
+            kernel=adaptive_hmc,
+            trace_fn=lambda _, pkr: pkr.inner_results.is_accepted
+        )
+        return samples, kernel_results
+
+    print(f"Running HMC for {net.model_name}...")
+    samples, is_accepted = run_chain()
+    acceptance_rate = tf.reduce_mean(tf.cast(is_accepted, dtype=tf.float32))
+    print(f"HMC for {net.model_name} finished. Acceptance rate: {acceptance_rate:.4f}")
+    
+    return samples

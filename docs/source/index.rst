@@ -36,6 +36,8 @@ CausalBGM Highlighted Features
 
 - Provide both `Python PyPi package <https://pypi.org/project/CausalBGM/>`__ and `R CRAN package <https://cran.r-project.org/web/packages/RcausalBGM/index.html>`__.
 
+- Provide identifiable CausalBGM (iCausalBGM) and full MCMC CausalBGM (CausalBGM-MCMC).
+
 
 Main References
 ^^^^^^^^^^^^^^^

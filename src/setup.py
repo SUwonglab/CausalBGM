@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="bayesgm", 
-    version="0.2.0",
+    version="0.3.0",
     author="Qiao Liu",
     author_email="liuqiao@stanford.edu",
     description="An AI-powered Bayesian generative modeling approach",
