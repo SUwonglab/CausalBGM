@@ -423,4 +423,98 @@ def estimate_latent_dims(x,y,v, v_ratio = 0.7, z0_dim=3, max_total_dim=64, min_z
         z3_dim = min_z3_dim
     return [z0_dim, z1_dim, z2_dim, z3_dim]
 
+import numpy as np
+
+def mnist_mask_indices(
+    shape=(28, 28),
+    mode="hole",
+    center=(14, 14),
+    num_holes=1,
+    hole_size=3,
+    orientation="horizontal",
+    stripe_width=4,
+    stripe_pos=14,  
+    seed=None,
+):
+    """
+    Create pixel masks on a 2D grid and return flattened index arrays.
+    
+    Parameters
+    ----------
+    shape : (H, W)
+        Image height and width.
+    mode : str
+        One of:
+          - 'hole' : mask a hole with size `hole_size`×`hole_size`.
+          - 'edge_stripe'  : mask a stripe along the edges; choose `side` and `stripe_width`.
+          - 'upper_half'   : mask rows [0 : H//2)
+          - 'lower_half'   : mask rows [H//2 : H)
+          - 'left_half'    : mask cols [0 : W//2)
+          - 'right_half'   : mask cols [W//2 : W)
+    center : tuple (row, col)
+        Center of the hole when mode='hole'.
+    hole_size : int
+        Side length of each square hole (odd is best).
+    orientation : str
+        Which edges to mask for mode='edge_stripe'.
+        'horizontal' masks horizontal strip; 'vertical' masks vertical strip.
+    stripe_width : int
+        Stripe thickness in pixels (for edge stripes).
+    stripe_pos : int
+        Position of the stripe when mode='edge_stripe'.
+    seed : int or None
+        RNG seed for reproducibility.
+
+    Returns
+    -------
+    ind_x1 : np.ndarray (1D, dtype=int)
+        Flattened indices of **unmasked** pixels.
+    ind_x2 : np.ndarray (1D, dtype=int)
+        Flattened indices of **masked** pixels.
+    """
+    H, W = shape
+    mask = np.zeros((H, W), dtype=bool)  # False=keep (unmasked), True=mask out
+
+    if mode == "holes":
+        rng = np.random.default_rng(seed)
+        r = hole_size
+        # ensure holes stay inside bounds
+        r2 = r // 2
+        valid_rows = np.arange(r2, H - (r - r2 - 1))
+        valid_cols = np.arange(r2, W - (r - r2 - 1))
+        if center is None:
+            center = (rng.choice(valid_rows), rng.choice(valid_cols))
+        (cy, cx) = center
+        y0, y1 = cy - r2, cy - r2 + r
+        x0, x1 = cx - r2, cx - r2 + r
+        mask[y0:y1, x0:x1] = True
+
+    elif mode == "edge_stripe":
+        w = int(stripe_width)
+        start_idx = stripe_pos - w // 2
+        end_idx = stripe_pos - w // 2 + w
+        if orientation == 'horizontal':
+            mask[start_idx:end_idx, :] = True
+        elif orientation == 'vertical':
+            mask[: start_idx:end_idx] = True
+        else:
+            raise ValueError(f"Unknown orientation: {orientation}")
+
+    elif mode == "upper_half":
+        mask[: H // 2, :] = True
+    elif mode == "lower_half":
+        mask[H // 2 :, :] = True
+    elif mode == "left_half":
+        mask[:, : W // 2] = True
+    elif mode == "right_half":
+        mask[:, W // 2 :] = True
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    # Flattened index outputs
+    ind_x2 = np.flatnonzero(mask)         # masked
+    ind_x1 = np.flatnonzero(~mask)        # unmasked
+    return ind_x1, ind_x2
+
+
 

@@ -8,7 +8,8 @@ from .helpers import (
     simulate_regression,
     simulate_low_rank_data,
     simulate_heteroskedastic_data,
-    simulate_z_hetero
+    simulate_z_hetero,
+    mnist_mask_indices
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "simulate_regression",
     "simulate_low_rank_data",
     "simulate_heteroskedastic_data",
-    "simulate_z_hetero"
+    "simulate_z_hetero",
+    "mnist_mask_indices"
 ]
 
