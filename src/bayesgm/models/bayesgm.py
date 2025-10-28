@@ -1156,9 +1156,9 @@ class BayesGM(object):
     @tf.function
     def evaluate(self, data, data_z=None, use_x_sd=True):
         if data_z is None:
-            data_z = self.e_net(data)
+            data_z = self.e_net(data, training=False)
 
-        mu_x, sigma_square_x = self.g_net(data_z)
+        mu_x, sigma_square_x = self.g_net(data_z, training=False)
 
         if use_x_sd:
             data_x_pred = self.g_net.reparameterize(mu_x, sigma_square_x)
@@ -1173,7 +1173,7 @@ class BayesGM(object):
 
         data_z = tf.random.normal(shape=(nb_samples, self.params['z_dim']), mean=0.0, stddev=1.0)
 
-        mu_x, sigma_square_x = self.g_net(data_z)
+        mu_x, sigma_square_x = self.g_net(data_z, training=False)
 
         if use_x_sd:
             data_x_gen = self.g_net.reparameterize(mu_x, sigma_square_x)
@@ -1188,7 +1188,7 @@ class BayesGM(object):
 
         # Flatten data
         data_posterior_z_flat = tf.reshape(data_posterior_z, [-1, self.params['z_dim']])  # Flatten: Shape: (n_IS * n_samples, z_dim)
-        mu_x_flat, sigma_square_x_flat = self.g_net(data_posterior_z_flat)  # Output shape: (n_MCMC*n_samples, x_dim)
+        mu_x_flat, sigma_square_x_flat = self.g_net(data_posterior_z_flat, training=False)  # Output shape: (n_MCMC*n_samples, x_dim)
 
         data_x_pred_flat = self.g_net.reparameterize(mu_x_flat, sigma_square_x_flat)
         # Correctly reshape mean and variance
@@ -1241,7 +1241,7 @@ class BayesGM(object):
         return (np.ndarray): Log posterior with shape (n, ).
         """
 
-        mu_x, sigma_square_x = self.g_net(data_z)
+        mu_x, sigma_square_x = self.g_net(data_z, training=False)
 
         if ind_x1 is not None:
             mu_x = tf.gather(mu_x, ind_x1, axis=1)
